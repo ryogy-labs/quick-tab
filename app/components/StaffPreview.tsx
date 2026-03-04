@@ -33,6 +33,7 @@ type EventRender = {
 };
 
 type DurationToken = "w" | "h" | "q" | "8" | "16";
+type SupportedLen = 1 | 2 | 4 | 8 | 16;
 
 const STAFF_LINE_GAP = 12;
 const STAFF_TOP = 26;
@@ -101,20 +102,35 @@ const midiToStaffY = (midi: number): { y: number; accidental: "#" | "" } => {
   return { y, accidental: token.accidental };
 };
 
-const normalizeDuration = (len: number): DurationToken => {
-  if (len >= 12) {
-    return "w";
+const DURATIONS_BY_LEN: Record<SupportedLen, DurationToken> = {
+  1: "16",
+  2: "8",
+  4: "q",
+  8: "h",
+  16: "w",
+};
+
+const SUPPORTED_LENS: SupportedLen[] = [1, 2, 4, 8, 16];
+
+export const lenToDuration = (len: number): DurationToken | null => {
+  if (len in DURATIONS_BY_LEN) {
+    return DURATIONS_BY_LEN[len as SupportedLen];
   }
-  if (len >= 6) {
-    return "h";
+  return null;
+};
+
+// Safety behavior for imported/legacy invalid len:
+// warn and snap to the nearest supported duration length.
+const normalizeLenForDuration = (len: number): SupportedLen => {
+  if (lenToDuration(len) !== null) {
+    return len as SupportedLen;
   }
-  if (len >= 3) {
-    return "q";
-  }
-  if (len >= 2) {
-    return "8";
-  }
-  return "16";
+
+  const snapped = SUPPORTED_LENS.reduce((best, candidate) =>
+    Math.abs(candidate - len) < Math.abs(best - len) ? candidate : best
+  );
+  console.warn(`[StaffPreview] unsupported len=${len}; snapped to ${snapped}`);
+  return snapped;
 };
 
 const restLabel = (duration: DurationToken): string => {
@@ -266,7 +282,8 @@ export default function StaffPreview({
         </text>
 
         {renderEvents.map((event) => {
-          const duration = normalizeDuration(event.len);
+          const safeLen = normalizeLenForDuration(event.len);
+          const duration = lenToDuration(safeLen) ?? "16";
           if (event.isRest) {
             const rest = event.notes[0];
             if (!rest) {
