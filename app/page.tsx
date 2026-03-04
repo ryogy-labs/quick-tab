@@ -20,7 +20,7 @@ import {
   eventsToGrid,
   findEventAtStep,
   getCellFret,
-  isStepBlockedForNewStart,
+  isCellBlockedForNewStart,
   moveStepByLen,
   normalizeToTabDataV2,
   sanitizeTabDataV2,
@@ -83,32 +83,45 @@ export default function Home() {
   const blockedStepSet = useMemo(() => {
     const set = new Set<number>();
     visibleSteps.forEach((step) => {
-      if (isStepBlockedForNewStart(events, step)) {
+      if (isCellBlockedForNewStart(events, step, selected.rowIndex)) {
         set.add(step);
       }
     });
     return set;
-  }, [events, visibleSteps]);
+  }, [events, visibleSteps, selected.rowIndex]);
   const measureGrids = useMemo(
     () => tabData.measures.map((measure) => eventsToGrid(measure.events)),
     [tabData.measures]
   );
   const blockedStepsByMeasure = useMemo(
     () =>
-      tabData.measures.map((measure) => {
-        const set = new Set<number>();
-        visibleSteps.forEach((step) => {
-          if (isStepBlockedForNewStart(measure.events, step)) {
-            set.add(step);
-          }
-        });
-        return set;
-      }),
+      tabData.measures.map((measure) =>
+        Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => {
+          const set = new Set<number>();
+          visibleSteps.forEach((step) => {
+            if (isCellBlockedForNewStart(measure.events, step, rowIndex)) {
+              set.add(step);
+            }
+          });
+          return set;
+        })
+      ),
     [tabData.measures, visibleSteps]
   );
 
-  const getNearestSelectableStep = (targetStep: number): number => {
-    const selectable = visibleSteps.filter((step) => !blockedStepSet.has(step));
+  const getNearestSelectableStep = (
+    targetStep: number,
+    rowIndex = selected.rowIndex,
+    measureIndex = selectedMeasureIndex
+  ): number => {
+    const measureEvents = getMeasureEvents(tabData, measureIndex);
+    const blockedSteps = new Set<number>();
+    visibleSteps.forEach((step) => {
+      if (isCellBlockedForNewStart(measureEvents, step, rowIndex)) {
+        blockedSteps.add(step);
+      }
+    });
+    const selectable = visibleSteps.filter((step) => !blockedSteps.has(step));
     if (selectable.length === 0) {
       return 0;
     }
@@ -151,7 +164,11 @@ export default function Home() {
     setSelected({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
-      stepIndex: getNearestSelectableStep(clampedStep),
+      stepIndex: getNearestSelectableStep(
+        clampedStep,
+        Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
+        clampedMeasure
+      ),
     });
   };
 
@@ -178,7 +195,12 @@ export default function Home() {
 
   const commitNoteAtSelected = (fret: number) => {
     const safeFret = clampFret(fret);
-    if (!canPlaceEvent(events, selected.stepIndex, inputLen, { ignoreStep: selected.stepIndex })) {
+    if (
+      !canPlaceEvent(events, selected.stepIndex, inputLen, {
+        ignoreStep: selected.stepIndex,
+        stringNumbers: [selected.rowIndex + 1],
+      })
+    ) {
       return;
     }
     setTabData((prev) => {
@@ -438,7 +460,16 @@ export default function Home() {
       return;
     }
 
-    if (!canPlaceEvent(events, selected.stepIndex, len, { ignoreStep: selected.stepIndex })) {
+    const targetStrings =
+      "rest" in currentEvent && currentEvent.rest
+        ? undefined
+        : currentEvent.notes.map((note) => note.string);
+    if (
+      !canPlaceEvent(events, selected.stepIndex, len, {
+        ignoreStep: selected.stepIndex,
+        stringNumbers: targetStrings,
+      })
+    ) {
       return;
     }
 
@@ -760,7 +791,8 @@ export default function Home() {
                         playCursor?.stepIndex === stepIndex;
                       const isBarStart = slotIndex === 0;
                       const isBarEnd = slotIndex === displaySlots - 1;
-                      const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
+                      const isBlocked =
+                        blockedStepsByMeasure[measureIndex]?.[rowIndex]?.has(stepIndex) ?? false;
                       return (
                         <button
                           key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}

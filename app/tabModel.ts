@@ -61,6 +61,7 @@ export type DurationOption = {
 
 type PlacementOptions = {
   ignoreStep?: number;
+  stringNumbers?: number[];
 };
 
 export const DURATION_OPTIONS: DurationOption[] = [
@@ -132,6 +133,23 @@ const sortAndDedupeNotes = (notes: TabNoteEventNote[]): TabNoteEventNote[] => {
     .map(([string, fret]) => ({ string, fret }));
 };
 
+const eventHasString = (event: TabEvent, stringNumber: number): boolean => {
+  if ("rest" in event && event.rest) {
+    return true;
+  }
+  return event.notes.some((note) => note.string === stringNumber);
+};
+
+const eventsConflict = (a: TabEvent, b: TabEvent): boolean => {
+  if (!rangesOverlap(a.step, a.len, b.step, b.len)) {
+    return false;
+  }
+  if (("rest" in a && a.rest) || ("rest" in b && b.rest)) {
+    return true;
+  }
+  return a.notes.some((noteA) => b.notes.some((noteB) => noteA.string === noteB.string));
+};
+
 export const rangesOverlap = (
   startA: number,
   lenA: number,
@@ -170,10 +188,7 @@ export const sanitizeEvents = (
 
   const accepted: TabEvent[] = [];
   sorted.forEach((candidate) => {
-    const hasOverlap = accepted.some((existing) =>
-      rangesOverlap(existing.step, existing.len, candidate.step, candidate.len)
-    );
-    if (hasOverlap) {
+    if (accepted.some((existing) => eventsConflict(existing, candidate))) {
       console.warn(
         `[tabModel] overlap removed: step=${candidate.step}, len=${candidate.len}`
       );
@@ -194,10 +209,46 @@ export const canPlaceEvent = (
 ): boolean => {
   const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
   const safeLen = clampLenByMeasure(len, safeStep, stepsPerMeasure);
+  const targetStrings =
+    options.stringNumbers?.length
+      ? options.stringNumbers
+          .map((value) => clampInt(value, 1, STRINGS_COUNT))
+          .filter((value, index, array) => array.indexOf(value) === index)
+      : null;
 
   return sanitizeEvents(events, stepsPerMeasure)
     .filter((event) => event.step !== options.ignoreStep)
-    .every((event) => !rangesOverlap(event.step, event.len, safeStep, safeLen));
+    .every((event) => {
+      if (!rangesOverlap(event.step, event.len, safeStep, safeLen)) {
+        return true;
+      }
+      if (targetStrings === null) {
+        return false;
+      }
+      return !targetStrings.some((stringNumber) => eventHasString(event, stringNumber));
+    });
+};
+
+export const isCellBlockedForNewStart = (
+  events: TabEvent[],
+  stepIndex: number,
+  stringIndex: number,
+  stepsPerMeasure = STEPS_PER_MEASURE
+): boolean => {
+  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
+  const safeStringNumber = clampInt(stringIndex + 1, 1, STRINGS_COUNT);
+  return sanitizeEvents(events, stepsPerMeasure).some((event) => {
+    // start step is editable; only the sustained range blocks a new start.
+    const inSustainRange = safeStep > event.step && safeStep < event.step + event.len;
+    if (!inSustainRange) {
+      return false;
+    }
+    // rest blocks all strings while sustained to keep rest occupancy consistent.
+    if ("rest" in event && event.rest) {
+      return true;
+    }
+    return event.notes.some((note) => note.string === safeStringNumber);
+  });
 };
 
 export const isStepBlockedForNewStart = (
@@ -267,7 +318,12 @@ export const upsertNoteAtCell = (
   const safeLen = clampLen(len, stepIndex);
   const safeFret = clampFret(fret);
 
-  if (!canPlaceEvent(events, stepIndex, safeLen, { ignoreStep: stepIndex })) {
+  if (
+    !canPlaceEvent(events, stepIndex, safeLen, {
+      ignoreStep: stepIndex,
+      stringNumbers: [stringNumber],
+    })
+  ) {
     return sanitizeEvents(events, STEPS_PER_MEASURE);
   }
 
@@ -313,7 +369,11 @@ export const updateEventLengthAtStep = (
   }
 
   const safeLen = clampLen(len, safeStep);
-  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep })) {
+  const stringNumbers =
+    "rest" in existing && existing.rest
+      ? undefined
+      : existing.notes.map((note) => note.string);
+  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep, stringNumbers })) {
     return sanitizeEvents(events, STEPS_PER_MEASURE);
   }
   const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
