@@ -14,13 +14,16 @@ import {
   TabEvent,
   clampFret,
   clampTempo,
+  canPlaceEvent,
   createEmptyTabDataV2,
   deleteCellOrRestAtStep,
   eventsToGrid,
   findEventAtStep,
   getCellFret,
+  isStepBlockedForNewStart,
   moveStepByLen,
   normalizeToTabDataV2,
+  sanitizeTabDataV2,
   toFrequency,
   updateEventLengthAtStep,
   upsertNoteAtCell,
@@ -61,8 +64,7 @@ export default function Home() {
   const blockedStepSet = useMemo(() => {
     const set = new Set<number>();
     visibleSteps.forEach((step) => {
-      const covered = events.some((event) => step > event.step && step < event.step + event.len);
-      if (covered) {
+      if (isStepBlockedForNewStart(events, step)) {
         set.add(step);
       }
     });
@@ -77,21 +79,6 @@ export default function Home() {
     return selectable.reduce((best, step) =>
       Math.abs(step - targetStep) < Math.abs(best - targetStep) ? step : best
     );
-  };
-
-  const canPlaceEventAtStep = (targetStep: number, len: number): boolean => {
-    const nextStart = targetStep;
-    const nextEnd = targetStep + len;
-
-    return events.every((event) => {
-      if (event.step === targetStep) {
-        return true;
-      }
-      const existingStart = event.step;
-      const existingEnd = event.step + event.len;
-      const overlaps = nextStart < existingEnd && existingStart < nextEnd;
-      return !overlaps;
-    });
   };
 
   const clearDigitBuffer = () => {
@@ -133,7 +120,7 @@ export default function Home() {
 
   const commitNoteAtSelected = (fret: number) => {
     const safeFret = clampFret(fret);
-    if (!canPlaceEventAtStep(selected.stepIndex, inputLen)) {
+    if (!canPlaceEvent(events, selected.stepIndex, inputLen, { ignoreStep: selected.stepIndex })) {
       return;
     }
     setTabData((prev) => {
@@ -151,7 +138,7 @@ export default function Home() {
   };
 
   const placeRestAtStep = (stepIndex: number) => {
-    if (!canPlaceEventAtStep(stepIndex, inputLen)) {
+    if (!canPlaceEvent(events, stepIndex, inputLen, { ignoreStep: stepIndex })) {
       return;
     }
     setTabData((prev) => {
@@ -187,7 +174,7 @@ export default function Home() {
         const parsed = JSON.parse(stored);
         const normalized = normalizeToTabDataV2(parsed);
         if (normalized) {
-          setTabData(normalized);
+          setTabData(sanitizeTabDataV2(normalized));
         }
       } catch {
         // ignore
@@ -204,7 +191,7 @@ export default function Home() {
       const parsed = JSON.parse(legacy);
       const normalized = normalizeToTabDataV2(parsed);
       if (normalized) {
-        setTabData(normalized);
+        setTabData(sanitizeTabDataV2(normalized));
       }
     } catch {
       // ignore
@@ -342,7 +329,7 @@ export default function Home() {
       return;
     }
 
-    if (!canPlaceEventAtStep(selected.stepIndex, len)) {
+    if (!canPlaceEvent(events, selected.stepIndex, len, { ignoreStep: selected.stepIndex })) {
       return;
     }
 
@@ -475,7 +462,7 @@ export default function Home() {
         return;
       }
 
-      setTabData(normalized);
+      setTabData(sanitizeTabDataV2(normalized));
       stopPlayback();
       clearDigitBuffer();
     } catch {
