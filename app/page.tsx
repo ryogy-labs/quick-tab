@@ -155,9 +155,9 @@ export default function Home() {
       return;
     }
     setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selected.measureIndex);
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
       const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, inputLen);
-      return updateMeasureEvents(prev, selected.measureIndex, nextEvents);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
 
     setSelected((prev) => ({
@@ -171,9 +171,9 @@ export default function Home() {
       return;
     }
     setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selected.measureIndex);
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
       const nextEvents = upsertRestAtStep(measureEvents, stepIndex, inputLen);
-      return updateMeasureEvents(prev, selected.measureIndex, nextEvents);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
 
     setSelected((prev) => ({
@@ -292,7 +292,7 @@ export default function Home() {
       return;
     }
 
-    const targetMeasureIndex = selected.measureIndex;
+    const targetMeasureIndex = selectedMeasureIndex;
     const playbackEvents = getMeasureEvents(tabData, targetMeasureIndex);
     let stepIndex = 0;
     const tempo = tabData.tempo;
@@ -324,9 +324,9 @@ export default function Home() {
   const handleDelete = () => {
     clearDigitBuffer();
     setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selected.measureIndex);
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
       const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
-      return updateMeasureEvents(prev, selected.measureIndex, nextEvents);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
   };
 
@@ -366,9 +366,9 @@ export default function Home() {
     }
 
     setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selected.measureIndex);
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
       const nextEvents = updateEventLengthAtStep(measureEvents, selected.stepIndex, len);
-      return updateMeasureEvents(prev, selected.measureIndex, nextEvents);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
   };
 
@@ -508,6 +508,15 @@ export default function Home() {
     "--step-width": `${stepWidth}px`,
     "--slot-count": String(displaySlots),
   } as CSSProperties;
+
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.measureIndex === selectedMeasureIndex) {
+        return prev;
+      }
+      return { ...prev, measureIndex: selectedMeasureIndex };
+    });
+  }, [selectedMeasureIndex]);
 
   useEffect(() => {
     setSelected((prev) => {

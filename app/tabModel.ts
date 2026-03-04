@@ -82,12 +82,16 @@ export const createEmptyTabDataV2 = (): TabDataV2 => ({
 });
 
 export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
-  const measure = data.measures.at(0);
-  const sanitizedEvents = sanitizeEvents(measure?.events ?? [], STEPS_PER_MEASURE);
+  const sanitizedMeasures =
+    data.measures.length > 0
+      ? data.measures.map((measure) => ({
+          events: sanitizeEvents(measure?.events ?? [], STEPS_PER_MEASURE),
+        }))
+      : [{ events: [] }];
   return {
     ...data,
     stepsPerMeasure: STEPS_PER_MEASURE,
-    measures: [{ events: sanitizedEvents }],
+    measures: sanitizedMeasures,
   };
 };
 
@@ -373,12 +377,24 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
 
   if (candidate.version === 2) {
     const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
-    const firstMeasure = measures.at(0) as { events?: unknown } | undefined;
-    if (!firstMeasure || !Array.isArray(firstMeasure.events)) {
+    if (measures.length === 0) {
       return null;
     }
 
-    const events = sanitizeEvents(firstMeasure.events as TabEvent[], STEPS_PER_MEASURE);
+    const normalizedMeasures = measures
+      .map((measure) => {
+        const typed = measure as { events?: unknown };
+        if (!Array.isArray(typed.events)) {
+          return null;
+        }
+        return { events: sanitizeEvents(typed.events as TabEvent[], STEPS_PER_MEASURE) };
+      })
+      .filter((measure): measure is TabMeasureV2 => measure !== null);
+
+    if (normalizedMeasures.length === 0) {
+      return null;
+    }
+
     return {
       version: 2,
       tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
@@ -388,7 +404,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
         Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
-      measures: [{ events }],
+      measures: normalizedMeasures,
     };
   }
 
