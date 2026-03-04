@@ -37,20 +37,29 @@ const TAB_MEASURE_WIDTH = TAB_SLOT_WIDTH * STEPS_PER_MEASURE;
 
 export default function Home() {
   const [tabData, setTabData] = useState<TabDataV2>(createEmptyTabDataV2);
-  const [selected, setSelected] = useState<CellPosition>({ rowIndex: 5, stepIndex: 0 });
+  const [selected, setSelected] = useState<CellPosition>({
+    measureIndex: 0,
+    rowIndex: 5,
+    stepIndex: 0,
+  });
   const [inputLen, setInputLen] = useState<number>(1);
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [mobileFretInput, setMobileFretInput] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState(false);
   const [playStep, setPlayStep] = useState<number | null>(null);
+  const [playbackMeasureIndex, setPlaybackMeasureIndex] = useState<number | null>(null);
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
-  const events = tabData.measures[0]?.events ?? [];
+  const selectedMeasureIndex = Math.max(
+    0,
+    Math.min(tabData.measures.length - 1, selected.measureIndex)
+  );
+  const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
   const grid = useMemo(() => eventsToGrid(events), [events]);
   const minEventLen = events.reduce((min, event) => Math.min(min, Math.max(1, event.len)), 16);
   const effectiveMinLen = Math.min(minEventLen, inputLen);
@@ -81,6 +90,23 @@ export default function Home() {
     );
   };
 
+  const getMeasureEvents = (data: TabDataV2, measureIndex: number): TabEvent[] =>
+    data.measures.at(measureIndex)?.events ?? [];
+
+  const updateMeasureEvents = (
+    data: TabDataV2,
+    measureIndex: number,
+    nextEvents: TabEvent[]
+  ): TabDataV2 => {
+    const safeIndex = Math.max(0, measureIndex);
+    const measures = [...data.measures];
+    while (measures.length <= safeIndex) {
+      measures.push({ events: [] });
+    }
+    measures[safeIndex] = { events: nextEvents };
+    return { ...data, measures };
+  };
+
   const clearDigitBuffer = () => {
     digitBufferRef.current = "";
     if (digitTimerRef.current !== null) {
@@ -90,8 +116,13 @@ export default function Home() {
   };
 
   const moveSelection = (next: CellPosition) => {
+    const clampedMeasure = Math.max(
+      0,
+      Math.min(tabData.measures.length - 1, next.measureIndex)
+    );
     const clampedStep = Math.max(0, Math.min(STEPS_PER_MEASURE - 1, next.stepIndex));
     setSelected({
+      measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
       stepIndex: getNearestSelectableStep(clampedStep),
     });
@@ -124,11 +155,9 @@ export default function Home() {
       return;
     }
     setTabData((prev) => {
-      const nextEvents = upsertNoteAtCell(prev.measures[0].events, selected, safeFret, inputLen);
-      return {
-        ...prev,
-        measures: [{ events: nextEvents }],
-      };
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
+      const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, inputLen);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
 
     setSelected((prev) => ({
@@ -142,11 +171,9 @@ export default function Home() {
       return;
     }
     setTabData((prev) => {
-      const nextEvents = upsertRestAtStep(prev.measures[0].events, stepIndex, inputLen);
-      return {
-        ...prev,
-        measures: [{ events: nextEvents }],
-      };
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
+      const nextEvents = upsertRestAtStep(measureEvents, stepIndex, inputLen);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
     });
 
     setSelected((prev) => ({
@@ -163,6 +190,7 @@ export default function Home() {
       }
       setIsPlaying(false);
       setPlayStep(null);
+      setPlaybackMeasureIndex(null);
     },
     []
   );
@@ -264,13 +292,16 @@ export default function Home() {
       return;
     }
 
+    const targetMeasureIndex = selectedMeasureIndex;
+    const playbackEvents = getMeasureEvents(tabData, targetMeasureIndex);
     let stepIndex = 0;
     const tempo = tabData.tempo;
     const stepDurationMs = (60_000 / tempo) / 4;
 
     setIsPlaying(true);
+    setPlaybackMeasureIndex(targetMeasureIndex);
     setPlayStep(stepIndex);
-    const firstEvent = findEventAtStep(events, stepIndex);
+    const firstEvent = findEventAtStep(playbackEvents, stepIndex);
     if (firstEvent) {
       void playEvent(firstEvent, tempo);
     }
@@ -283,7 +314,7 @@ export default function Home() {
       }
 
       setPlayStep(stepIndex);
-      const current = findEventAtStep(events, stepIndex);
+      const current = findEventAtStep(playbackEvents, stepIndex);
       if (current) {
         void playEvent(current, tempo);
       }
@@ -292,10 +323,11 @@ export default function Home() {
 
   const handleDelete = () => {
     clearDigitBuffer();
-    setTabData((prev) => ({
-      ...prev,
-      measures: [{ events: deleteCellOrRestAtStep(prev.measures[0].events, selected) }],
-    }));
+    setTabData((prev) => {
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
+      const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
+    });
   };
 
   const handleTempoCommit = (raw: string) => {
@@ -333,14 +365,11 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => ({
-      ...prev,
-      measures: [
-        {
-          events: updateEventLengthAtStep(prev.measures[0].events, selected.stepIndex, len),
-        },
-      ],
-    }));
+    setTabData((prev) => {
+      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
+      const nextEvents = updateEventLengthAtStep(measureEvents, selected.stepIndex, len);
+      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
+    });
   };
 
   const handleDigitInput = (digit: string) => {
@@ -482,6 +511,15 @@ export default function Home() {
 
   useEffect(() => {
     setSelected((prev) => {
+      if (prev.measureIndex === selectedMeasureIndex) {
+        return prev;
+      }
+      return { ...prev, measureIndex: selectedMeasureIndex };
+    });
+  }, [selectedMeasureIndex]);
+
+  useEffect(() => {
+    setSelected((prev) => {
       const nextStep = getNearestSelectableStep(prev.stepIndex);
       if (nextStep === prev.stepIndex) {
         return prev;
@@ -589,11 +627,12 @@ export default function Home() {
 
         <div className={styles.notationFrame}>
           <h2 className={styles.notationTitle}>Standard Notation + TAB</h2>
+          <p className={styles.measureBadge}>Measure {selectedMeasureIndex + 1}</p>
           <div className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
                 events={events}
-                currentStep={playStep}
+                currentStep={playbackMeasureIndex === selectedMeasureIndex ? playStep : null}
                 labelWidth={TAB_LABEL_WIDTH}
                 stepWidth={stepWidth}
                 stepUnit={displayUnit}
@@ -609,7 +648,8 @@ export default function Home() {
                   const cell = grid[rowIndex][stepIndex];
                   const isSelected =
                     selected.rowIndex === rowIndex && selected.stepIndex === stepIndex;
-                  const isCurrentStep = playStep === stepIndex;
+                  const isCurrentStep =
+                    playbackMeasureIndex === selectedMeasureIndex && playStep === stepIndex;
                   const isBarStart = slotIndex === 0;
                   const isBarEnd = slotIndex === displaySlots - 1;
                   const isBlocked = blockedStepSet.has(stepIndex);
@@ -628,7 +668,7 @@ export default function Home() {
                         if (isBlocked) {
                           return;
                         }
-                        setSelected({ rowIndex, stepIndex });
+                        setSelected({ measureIndex: selectedMeasureIndex, rowIndex, stepIndex });
                       }}
                       disabled={isBlocked}
                     >
