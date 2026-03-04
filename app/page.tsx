@@ -60,6 +60,7 @@ export default function Home() {
     Math.min(tabData.measures.length - 1, selected.measureIndex)
   );
   const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
+  const totalMeasures = tabData.measures.length;
   const grid = useMemo(() => eventsToGrid(events), [events]);
   const minEventLen = events.reduce((min, event) => Math.min(min, Math.max(1, event.len)), 16);
   const effectiveMinLen = Math.min(minEventLen, inputLen);
@@ -321,6 +322,46 @@ export default function Home() {
     }, stepDurationMs);
   };
 
+  const handlePrevMeasure = () => {
+    if (isPlaying || selectedMeasureIndex <= 0) {
+      return;
+    }
+    setSelected((prev) => ({
+      ...prev,
+      measureIndex: Math.max(0, prev.measureIndex - 1),
+      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+    }));
+  };
+
+  const handleNextMeasure = () => {
+    if (isPlaying || selectedMeasureIndex >= totalMeasures - 1) {
+      return;
+    }
+    setSelected((prev) => ({
+      ...prev,
+      measureIndex: Math.min(totalMeasures - 1, prev.measureIndex + 1),
+      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+    }));
+  };
+
+  const handleAddMeasure = () => {
+    if (isPlaying) {
+      return;
+    }
+    const nextMeasureIndex = totalMeasures;
+    setTabData((prev) => ({
+      ...prev,
+      measures: [...prev.measures, { events: [] }],
+    }));
+    setSelected({
+      measureIndex: nextMeasureIndex,
+      rowIndex: 0,
+      stepIndex: 0,
+    });
+  };
+
   const handleDelete = () => {
     clearDigitBuffer();
     setTabData((prev) => {
@@ -553,6 +594,23 @@ export default function Home() {
           <p>Duration first then choose cell then type fret number</p>
         </div>
 
+        <div className={styles.measureNav}>
+          <button type="button" onClick={handlePrevMeasure} disabled={isPlaying || selectedMeasureIndex <= 0}>
+            Prev
+          </button>
+          <button
+            type="button"
+            onClick={handleNextMeasure}
+            disabled={isPlaying || selectedMeasureIndex >= totalMeasures - 1}
+          >
+            Next
+          </button>
+          <button type="button" onClick={handleAddMeasure} disabled={isPlaying}>
+            + Measure
+          </button>
+          <span>Measure {selectedMeasureIndex + 1} / {totalMeasures}</span>
+        </div>
+
         <div className={styles.toolbar}>
           <div className={styles.durationCard}>
             <h3>Duration</h3>
@@ -627,7 +685,7 @@ export default function Home() {
 
         <div className={styles.notationFrame}>
           <h2 className={styles.notationTitle}>Standard Notation + TAB</h2>
-          <p className={styles.measureBadge}>Measure {selectedMeasureIndex + 1}</p>
+          <p className={styles.measureBadge}>Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
           <div className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
