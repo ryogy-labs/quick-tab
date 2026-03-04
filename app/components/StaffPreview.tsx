@@ -5,11 +5,12 @@ import styles from "./StaffPreview.module.css";
 import { OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent } from "../tabModel";
 
 type StaffPreviewProps = {
-  events: TabEvent[];
-  currentStep: number | null;
+  measuresEvents: TabEvent[][];
+  currentCursor: { measureIndex: number; stepIndex: number } | null;
   labelWidth: number;
   stepWidth: number;
   stepUnit: number;
+  showClef?: boolean;
 };
 
 type PitchToken = {
@@ -26,6 +27,7 @@ type NoteRender = {
 };
 
 type EventRender = {
+  measureIndex: number;
   step: number;
   len: number;
   isRest: boolean;
@@ -150,50 +152,56 @@ const restLabel = (duration: DurationToken): string => {
 };
 
 const buildRenderEvents = (
-  events: TabEvent[],
+  measuresEvents: TabEvent[][],
   labelWidth: number,
   stepWidth: number,
-  stepUnit: number
+  stepUnit: number,
+  measureWidth: number
 ): EventRender[] => {
-  return [...events]
-    .filter((event) => event.step >= 0 && event.step < STEPS_PER_MEASURE)
-    .sort((a, b) => a.step - b.step)
-    .map((event) => {
-      const x = labelWidth + stepWidth * (event.step / stepUnit + 0.5);
+  return measuresEvents.flatMap((events, measureIndex) =>
+    [...events]
+      .filter((event) => event.step >= 0 && event.step < STEPS_PER_MEASURE)
+      .sort((a, b) => a.step - b.step)
+      .map((event) => {
+        const x =
+          labelWidth + measureWidth * measureIndex + stepWidth * (event.step / stepUnit + 0.5);
 
-      if ("rest" in event && event.rest) {
+        if ("rest" in event && event.rest) {
+          return {
+            measureIndex,
+            step: event.step,
+            len: event.len,
+            isRest: true,
+            notes: [{ x, y: STAFF_CENTER_Y, accidental: "" }],
+          };
+        }
+
+        const notes = event.notes
+          .map((note) => {
+            // string number mapping: 1 = high E (E4), 6 = low E (E2)
+            // UI row index mapping: rowIndex 0 => string 1, rowIndex 5 => string 6
+            const rowIndex = note.string - 1;
+            const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
+            if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) {
+              return null;
+            }
+            // Guitar notation is written one octave above sounding pitch.
+            const writtenMidi = openMidi + note.fret + 12;
+            const pos = midiToStaffY(writtenMidi);
+            return { x, y: pos.y, accidental: pos.accidental };
+          })
+          .filter((item): item is NoteRender => item !== null)
+          .sort((a, b) => a.y - b.y);
+
         return {
+          measureIndex,
           step: event.step,
           len: event.len,
-          isRest: true,
-          notes: [{ x, y: STAFF_CENTER_Y, accidental: "" }],
+          isRest: false,
+          notes,
         };
-      }
-
-      const notes = event.notes
-        .map((note) => {
-          // string number mapping: 1 = high E (E4), 6 = low E (E2)
-          // UI row index mapping: rowIndex 0 => string 1, rowIndex 5 => string 6
-          const rowIndex = note.string - 1;
-          const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
-          if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) {
-            return null;
-          }
-          // Guitar notation is written one octave above sounding pitch.
-          const writtenMidi = openMidi + note.fret + 12;
-          const pos = midiToStaffY(writtenMidi);
-          return { x, y: pos.y, accidental: pos.accidental };
-        })
-        .filter((item): item is NoteRender => item !== null)
-        .sort((a, b) => a.y - b.y);
-
-      return {
-        step: event.step,
-        len: event.len,
-        isRest: false,
-        notes,
-      };
-    });
+      })
+  );
 };
 
 const ledgerLineYs = (y: number): number[] => {
@@ -215,31 +223,42 @@ const ledgerLineYs = (y: number): number[] => {
 };
 
 export default function StaffPreview({
-  events,
-  currentStep,
+  measuresEvents,
+  currentCursor,
   labelWidth,
   stepWidth,
   stepUnit,
+  showClef = true,
 }: StaffPreviewProps) {
   const displaySlots = STEPS_PER_MEASURE / stepUnit;
-  const width = labelWidth + stepWidth * displaySlots;
+  const measureCount = Math.max(1, measuresEvents.length);
+  const measureWidth = stepWidth * displaySlots;
+  const width = labelWidth + measureWidth * measureCount;
   const height = 140;
 
   const renderEvents = useMemo(
-    () => buildRenderEvents(events, labelWidth, stepWidth, stepUnit),
-    [events, labelWidth, stepWidth, stepUnit]
+    () => buildRenderEvents(measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth),
+    [measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth]
   );
 
-  const activeSlot = currentStep === null ? -1 : Math.floor(currentStep / stepUnit);
+  const activeSlot =
+    currentCursor === null
+      ? null
+      : {
+          measureIndex: currentCursor.measureIndex,
+          slotIndex: Math.floor(currentCursor.stepIndex / stepUnit),
+        };
 
   return (
     <section className={styles.staffBlock}>
       <svg className={styles.canvas} width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
 
-        {activeSlot >= 0 && activeSlot < displaySlots && (
+        {activeSlot !== null &&
+          activeSlot.slotIndex >= 0 &&
+          activeSlot.slotIndex < displaySlots && (
           <rect
-            x={labelWidth + stepWidth * activeSlot}
+            x={labelWidth + measureWidth * activeSlot.measureIndex + stepWidth * activeSlot.slotIndex}
             y={10}
             width={stepWidth}
             height={height - 20}
@@ -262,11 +281,11 @@ export default function StaffPreview({
           );
         })}
 
-        {[0, 16].map((step) => {
-          const x = labelWidth + stepWidth * (step / stepUnit);
+        {Array.from({ length: measureCount + 1 }, (_, measureIndex) => {
+          const x = labelWidth + measureWidth * measureIndex;
           return (
             <line
-              key={`bar-line-${step}`}
+              key={`bar-line-${measureIndex}`}
               x1={x}
               x2={x}
               y1={STAFF_TOP}
@@ -277,9 +296,11 @@ export default function StaffPreview({
           );
         })}
 
-        <text x={labelWidth * 0.45} y={STAFF_TOP + 28} fontSize={44} textAnchor="middle" fill="#111">
-          𝄞
-        </text>
+        {showClef && (
+          <text x={labelWidth * 0.45} y={STAFF_TOP + 28} fontSize={44} textAnchor="middle" fill="#111">
+            𝄞
+          </text>
+        )}
 
         {renderEvents.map((event) => {
           const safeLen = normalizeLenForDuration(event.len);
@@ -289,7 +310,10 @@ export default function StaffPreview({
             if (!rest) {
               return null;
             }
-            const isActive = event.step === currentStep;
+            const isActive =
+              currentCursor !== null &&
+              currentCursor.measureIndex === event.measureIndex &&
+              currentCursor.stepIndex === event.step;
             return (
               <text
                 key={`rest-${event.step}`}
@@ -308,7 +332,10 @@ export default function StaffPreview({
             return null;
           }
 
-          const isActive = event.step === currentStep;
+          const isActive =
+            currentCursor !== null &&
+            currentCursor.measureIndex === event.measureIndex &&
+            currentCursor.stepIndex === event.step;
           const stemUp = event.notes[0].y > STAFF_CENTER_Y;
           const stemX = stemUp ? event.notes[event.notes.length - 1].x + NOTE_RADIUS_X : event.notes[0].x - NOTE_RADIUS_X;
           const stemBaseY = stemUp ? event.notes[event.notes.length - 1].y : event.notes[0].y;

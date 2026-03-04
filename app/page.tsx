@@ -35,6 +35,11 @@ const TAB_LABEL_WIDTH = 92;
 const TAB_SLOT_WIDTH = 48;
 const TAB_MEASURE_WIDTH = TAB_SLOT_WIDTH * STEPS_PER_MEASURE;
 
+type PlayCursor = {
+  measureIndex: number;
+  stepIndex: number;
+};
+
 export default function Home() {
   const [tabData, setTabData] = useState<TabDataV2>(createEmptyTabDataV2);
   const [selected, setSelected] = useState<CellPosition>({
@@ -47,8 +52,7 @@ export default function Home() {
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [mobileFretInput, setMobileFretInput] = useState<string>("");
   const [isPlaying, setIsPlaying] = useState(false);
-  const [playStep, setPlayStep] = useState<number | null>(null);
-  const [playbackMeasureIndex, setPlaybackMeasureIndex] = useState<number | null>(null);
+  const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
@@ -61,9 +65,14 @@ export default function Home() {
   );
   const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
   const totalMeasures = tabData.measures.length;
-  const grid = useMemo(() => eventsToGrid(events), [events]);
-  const minEventLen = events.reduce((min, event) => Math.min(min, Math.max(1, event.len)), 16);
-  const effectiveMinLen = Math.min(minEventLen, inputLen);
+  const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
+    const localMin = measure.events.reduce(
+      (min, event) => Math.min(min, Math.max(1, event.len)),
+      16
+    );
+    return Math.min(globalMin, localMin);
+  }, 16);
+  const effectiveMinLen = Math.min(minEventLenAcrossMeasures, inputLen);
   const displayUnit = effectiveMinLen === 1 ? 1 : 2;
   const displaySlots = STEPS_PER_MEASURE / displayUnit;
   const stepWidth = TAB_MEASURE_WIDTH / displaySlots;
@@ -80,6 +89,23 @@ export default function Home() {
     });
     return set;
   }, [events, visibleSteps]);
+  const measureGrids = useMemo(
+    () => tabData.measures.map((measure) => eventsToGrid(measure.events)),
+    [tabData.measures]
+  );
+  const blockedStepsByMeasure = useMemo(
+    () =>
+      tabData.measures.map((measure) => {
+        const set = new Set<number>();
+        visibleSteps.forEach((step) => {
+          if (isStepBlockedForNewStart(measure.events, step)) {
+            set.add(step);
+          }
+        });
+        return set;
+      }),
+    [tabData.measures, visibleSteps]
+  );
 
   const getNearestSelectableStep = (targetStep: number): number => {
     const selectable = visibleSteps.filter((step) => !blockedStepSet.has(step));
@@ -190,8 +216,7 @@ export default function Home() {
         intervalRef.current = null;
       }
       setIsPlaying(false);
-      setPlayStep(null);
-      setPlaybackMeasureIndex(null);
+      setPlayCursor(null);
     },
     []
   );
@@ -293,29 +318,40 @@ export default function Home() {
       return;
     }
 
-    const targetMeasureIndex = selectedMeasureIndex;
-    const playbackEvents = getMeasureEvents(tabData, targetMeasureIndex);
-    let stepIndex = 0;
+    const startMeasureIndex = selectedMeasureIndex;
+    let linearIndex = startMeasureIndex * STEPS_PER_MEASURE;
+    const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
     const tempo = tabData.tempo;
     const stepDurationMs = (60_000 / tempo) / 4;
 
     setIsPlaying(true);
-    setPlaybackMeasureIndex(targetMeasureIndex);
-    setPlayStep(stepIndex);
-    const firstEvent = findEventAtStep(playbackEvents, stepIndex);
+    const initialCursor = {
+      measureIndex: Math.floor(linearIndex / STEPS_PER_MEASURE),
+      stepIndex: linearIndex % STEPS_PER_MEASURE,
+    };
+    setPlayCursor(initialCursor);
+
+    const firstEvents = getMeasureEvents(tabData, initialCursor.measureIndex);
+    const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
     if (firstEvent) {
       void playEvent(firstEvent, tempo);
     }
 
     intervalRef.current = window.setInterval(() => {
-      stepIndex += 1;
-      if (stepIndex >= STEPS_PER_MEASURE) {
+      linearIndex += 1;
+      if (linearIndex >= endLinearExclusive) {
         stopPlayback();
         return;
       }
 
-      setPlayStep(stepIndex);
-      const current = findEventAtStep(playbackEvents, stepIndex);
+      const cursor = {
+        measureIndex: Math.floor(linearIndex / STEPS_PER_MEASURE),
+        stepIndex: linearIndex % STEPS_PER_MEASURE,
+      };
+      setPlayCursor(cursor);
+
+      const eventsForMeasure = getMeasureEvents(tabData, cursor.measureIndex);
+      const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
       if (current) {
         void playEvent(current, tempo);
       }
@@ -544,10 +580,15 @@ export default function Home() {
 
   const selectedEvent = findEventAtStep(events, selected.stepIndex);
   const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+  const measuresEvents = useMemo(
+    () => tabData.measures.map((measure) => measure.events),
+    [tabData.measures]
+  );
+  const totalDisplaySlots = displaySlots * totalMeasures;
   const notationStyle = {
     "--label-width": `${TAB_LABEL_WIDTH}px`,
     "--step-width": `${stepWidth}px`,
-    "--slot-count": String(displaySlots),
+    "--slot-count": String(totalDisplaySlots),
   } as CSSProperties;
 
   useEffect(() => {
@@ -595,7 +636,11 @@ export default function Home() {
         </div>
 
         <div className={styles.measureNav}>
-          <button type="button" onClick={handlePrevMeasure} disabled={isPlaying || selectedMeasureIndex <= 0}>
+          <button
+            type="button"
+            onClick={handlePrevMeasure}
+            disabled={isPlaying || selectedMeasureIndex <= 0}
+          >
             Prev
           </button>
           <button
@@ -684,64 +729,69 @@ export default function Home() {
         </div>
 
         <div className={styles.notationFrame}>
-          <h2 className={styles.notationTitle}>Standard Notation + TAB</h2>
-          <p className={styles.measureBadge}>Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
+          <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
+          <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
           <div className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
-                events={events}
-                currentStep={playbackMeasureIndex === selectedMeasureIndex ? playStep : null}
+                measuresEvents={measuresEvents}
+                currentCursor={playCursor}
                 labelWidth={TAB_LABEL_WIDTH}
                 stepWidth={stepWidth}
                 stepUnit={displayUnit}
               />
               <div className={styles.grid}>
-            {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
-              <div key={`row-${rowIndex}`} className={styles.row}>
-                <div className={styles.stringLabel}>
-                  {TUNING[rowIndex]} ({rowIndex + 1})
-                </div>
-                {Array.from({ length: displaySlots }, (_, slotIndex) => {
-                  const stepIndex = visibleSteps[slotIndex] ?? 0;
-                  const cell = grid[rowIndex][stepIndex];
-                  const isSelected =
-                    selected.rowIndex === rowIndex && selected.stepIndex === stepIndex;
-                  const isCurrentStep =
-                    playbackMeasureIndex === selectedMeasureIndex && playStep === stepIndex;
-                  const isBarStart = slotIndex === 0;
-                  const isBarEnd = slotIndex === displaySlots - 1;
-                  const isBlocked = blockedStepSet.has(stepIndex);
-                  return (
-                    <button
-                      key={`cell-${rowIndex}-${stepIndex}`}
-                      type="button"
-                      className={`${styles.cell} ${
-                        isSelected ? styles.selected : ""
-                      } ${isCurrentStep ? styles.playing : ""} ${
-                        isBarStart ? styles.barStart : ""
-                      } ${isBarEnd ? styles.barEnd : ""} ${
-                        isBlocked ? styles.blocked : ""
-                      }`.trim()}
-                      onClick={() => {
-                        if (isBlocked) {
-                          return;
-                        }
-                        setSelected({ measureIndex: selectedMeasureIndex, rowIndex, stepIndex });
-                      }}
-                      disabled={isBlocked}
-                    >
-                      <span className={styles.cellValue}>
-                        {cell.fret !== null
-                          ? cell.fret
-                          : rowIndex === 0 && cell.isRestStart
-                            ? "R"
-                            : ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+                {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
+                  <div key={`row-${rowIndex}`} className={styles.row}>
+                    <div className={styles.stringLabel}>
+                      {TUNING[rowIndex]} ({rowIndex + 1})
+                    </div>
+                    {Array.from({ length: totalDisplaySlots }, (_, globalSlotIndex) => {
+                      const measureIndex = Math.floor(globalSlotIndex / displaySlots);
+                      const slotIndex = globalSlotIndex % displaySlots;
+                      const stepIndex = visibleSteps[slotIndex] ?? 0;
+                      const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
+                      const isSelected =
+                        selected.measureIndex === measureIndex &&
+                        selected.rowIndex === rowIndex &&
+                        selected.stepIndex === stepIndex;
+                      const isCurrentStep =
+                        playCursor?.measureIndex === measureIndex &&
+                        playCursor?.stepIndex === stepIndex;
+                      const isBarStart = slotIndex === 0;
+                      const isBarEnd = slotIndex === displaySlots - 1;
+                      const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
+                      return (
+                        <button
+                          key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
+                          type="button"
+                          className={`${styles.cell} ${
+                            isSelected ? styles.selected : ""
+                          } ${isCurrentStep ? styles.playing : ""} ${
+                            isBarStart ? styles.barStart : ""
+                          } ${isBarEnd ? styles.barEnd : ""} ${
+                            isBlocked ? styles.blocked : ""
+                          }`.trim()}
+                          onClick={() => {
+                            if (isBlocked) {
+                              return;
+                            }
+                            setSelected({ measureIndex, rowIndex, stepIndex });
+                          }}
+                          disabled={isBlocked}
+                        >
+                          <span className={styles.cellValue}>
+                            {cell?.fret !== null && cell?.fret !== undefined
+                              ? cell.fret
+                              : rowIndex === 0 && cell?.isRestStart
+                                ? "R"
+                                : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
