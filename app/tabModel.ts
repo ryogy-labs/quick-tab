@@ -43,6 +43,7 @@ export type TabDataV2 = {
 };
 
 export type CellPosition = {
+  measureIndex: number;
   rowIndex: number;
   stepIndex: number;
 };
@@ -81,7 +82,7 @@ export const createEmptyTabDataV2 = (): TabDataV2 => ({
 });
 
 export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
-  const measure = data.measures[0];
+  const measure = data.measures.at(0);
   const sanitizedEvents = sanitizeEvents(measure?.events ?? [], STEPS_PER_MEASURE);
   return {
     ...data,
@@ -372,7 +373,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
 
   if (candidate.version === 2) {
     const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
-    const firstMeasure = measures[0] as { events?: unknown } | undefined;
+    const firstMeasure = measures.at(0) as { events?: unknown } | undefined;
     if (!firstMeasure || !Array.isArray(firstMeasure.events)) {
       return null;
     }
@@ -394,7 +395,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
   if (candidate.version === 1) {
     const tempo = clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120);
     const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
-    const firstMeasure = measures[0] as { steps?: unknown } | undefined;
+    const firstMeasure = measures.at(0) as { steps?: unknown } | undefined;
     const steps = Array.isArray(firstMeasure?.steps) ? firstMeasure.steps : [];
 
     const events: TabEvent[] = [];
