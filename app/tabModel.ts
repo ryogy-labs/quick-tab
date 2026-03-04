@@ -58,6 +58,10 @@ export type DurationOption = {
   isRest: boolean;
 };
 
+type PlacementOptions = {
+  ignoreStep?: number;
+};
+
 export const DURATION_OPTIONS: DurationOption[] = [
   { label: "1/16", len: 1, isRest: false },
   { label: "1/8", len: 2, isRest: false },
@@ -76,6 +80,16 @@ export const createEmptyTabDataV2 = (): TabDataV2 => ({
   measures: [{ events: [] }],
 });
 
+export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
+  const measure = data.measures[0];
+  const sanitizedEvents = sanitizeEvents(measure?.events ?? [], STEPS_PER_MEASURE);
+  return {
+    ...data,
+    stepsPerMeasure: STEPS_PER_MEASURE,
+    measures: [{ events: sanitizedEvents }],
+  };
+};
+
 const clampInt = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, Math.trunc(value)));
 
@@ -88,6 +102,14 @@ const clampStep = (value: number): number =>
 
 const clampLen = (len: number, step: number): number => {
   const maxLen = STEPS_PER_MEASURE - step;
+  return clampInt(len, 1, Math.max(1, maxLen));
+};
+
+const clampStepByMeasure = (value: number, stepsPerMeasure: number): number =>
+  clampInt(value, 0, stepsPerMeasure - 1);
+
+const clampLenByMeasure = (len: number, step: number, stepsPerMeasure: number): number => {
+  const maxLen = stepsPerMeasure - step;
   return clampInt(len, 1, Math.max(1, maxLen));
 };
 
@@ -105,9 +127,20 @@ const sortAndDedupeNotes = (notes: TabNoteEventNote[]): TabNoteEventNote[] => {
     .map(([string, fret]) => ({ string, fret }));
 };
 
-const sanitizeEvent = (event: TabEvent): TabEvent | null => {
-  const step = clampStep(event.step);
-  const len = clampLen(event.len, step);
+export const rangesOverlap = (
+  startA: number,
+  lenA: number,
+  startB: number,
+  lenB: number
+): boolean => {
+  const endA = startA + lenA;
+  const endB = startB + lenB;
+  return startA < endB && startB < endA;
+};
+
+const sanitizeEvent = (event: TabEvent, stepsPerMeasure: number): TabEvent | null => {
+  const step = clampStepByMeasure(event.step, stepsPerMeasure);
+  const len = clampLenByMeasure(event.len, step, stepsPerMeasure);
 
   if ("rest" in event && event.rest) {
     return { step, len, rest: true };
@@ -121,11 +154,56 @@ const sanitizeEvent = (event: TabEvent): TabEvent | null => {
   return { step, len, notes };
 };
 
-export const sanitizeEvents = (events: TabEvent[]): TabEvent[] => {
-  return events
-    .map((event) => sanitizeEvent(event))
+export const sanitizeEvents = (
+  events: TabEvent[],
+  stepsPerMeasure = STEPS_PER_MEASURE
+): TabEvent[] => {
+  const sorted = events
+    .map((event) => sanitizeEvent(event, stepsPerMeasure))
     .filter((event): event is TabEvent => event !== null)
     .sort((a, b) => a.step - b.step);
+
+  const accepted: TabEvent[] = [];
+  sorted.forEach((candidate) => {
+    const hasOverlap = accepted.some((existing) =>
+      rangesOverlap(existing.step, existing.len, candidate.step, candidate.len)
+    );
+    if (hasOverlap) {
+      console.warn(
+        `[tabModel] overlap removed: step=${candidate.step}, len=${candidate.len}`
+      );
+      return;
+    }
+    accepted.push(candidate);
+  });
+
+  return accepted;
+};
+
+export const canPlaceEvent = (
+  events: TabEvent[],
+  stepIndex: number,
+  len: number,
+  options: PlacementOptions = {},
+  stepsPerMeasure = STEPS_PER_MEASURE
+): boolean => {
+  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
+  const safeLen = clampLenByMeasure(len, safeStep, stepsPerMeasure);
+
+  return sanitizeEvents(events, stepsPerMeasure)
+    .filter((event) => event.step !== options.ignoreStep)
+    .every((event) => !rangesOverlap(event.step, event.len, safeStep, safeLen));
+};
+
+export const isStepBlockedForNewStart = (
+  events: TabEvent[],
+  stepIndex: number,
+  stepsPerMeasure = STEPS_PER_MEASURE
+): boolean => {
+  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
+  return sanitizeEvents(events, stepsPerMeasure).some(
+    (event) => safeStep > event.step && safeStep < event.step + event.len
+  );
 };
 
 export const eventsToGrid = (events: TabEvent[]): GridCell[][] => {
@@ -136,7 +214,7 @@ export const eventsToGrid = (events: TabEvent[]): GridCell[][] => {
     }))
   );
 
-  sanitizeEvents(events).forEach((event) => {
+  sanitizeEvents(events, STEPS_PER_MEASURE).forEach((event) => {
     if ("rest" in event && event.rest) {
       grid[0][event.step].isRestStart = true;
       return;
@@ -155,7 +233,7 @@ export const eventsToGrid = (events: TabEvent[]): GridCell[][] => {
 };
 
 export const findEventAtStep = (events: TabEvent[], stepIndex: number): TabEvent | null => {
-  return sanitizeEvents(events).find((event) => event.step === stepIndex) ?? null;
+  return sanitizeEvents(events, STEPS_PER_MEASURE).find((event) => event.step === stepIndex) ?? null;
 };
 
 export const getCellFret = (
@@ -184,7 +262,11 @@ export const upsertNoteAtCell = (
   const safeLen = clampLen(len, stepIndex);
   const safeFret = clampFret(fret);
 
-  const next = sanitizeEvents(events).filter((event) => event.step !== stepIndex);
+  if (!canPlaceEvent(events, stepIndex, safeLen, { ignoreStep: stepIndex })) {
+    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  }
+
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== stepIndex);
   const existing = findEventAtStep(events, stepIndex);
 
   let notes: TabNoteEventNote[] = [];
@@ -196,7 +278,7 @@ export const upsertNoteAtCell = (
   const merged = sortAndDedupeNotes([...withoutTarget, { string: stringNumber, fret: safeFret }]);
 
   next.push({ step: stepIndex, len: safeLen, notes: merged });
-  return sanitizeEvents(next);
+  return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
 export const upsertRestAtStep = (
@@ -206,9 +288,12 @@ export const upsertRestAtStep = (
 ): TabEvent[] => {
   const safeStep = clampStep(stepIndex);
   const safeLen = clampLen(len, safeStep);
-  const next = sanitizeEvents(events).filter((event) => event.step !== safeStep);
+  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep })) {
+    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  }
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
   next.push({ step: safeStep, len: safeLen, rest: true });
-  return sanitizeEvents(next);
+  return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
 export const updateEventLengthAtStep = (
@@ -223,15 +308,18 @@ export const updateEventLengthAtStep = (
   }
 
   const safeLen = clampLen(len, safeStep);
-  const next = sanitizeEvents(events).filter((event) => event.step !== safeStep);
+  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep })) {
+    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  }
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     next.push({ step: existing.step, len: safeLen, rest: true });
-    return sanitizeEvents(next);
+    return sanitizeEvents(next, STEPS_PER_MEASURE);
   }
 
   next.push({ step: existing.step, len: safeLen, notes: existing.notes });
-  return sanitizeEvents(next);
+  return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
 export const deleteCellOrRestAtStep = (
@@ -243,10 +331,10 @@ export const deleteCellOrRestAtStep = (
   const existing = findEventAtStep(events, safeStep);
 
   if (!existing) {
-    return sanitizeEvents(events);
+    return sanitizeEvents(events, STEPS_PER_MEASURE);
   }
 
-  const next = sanitizeEvents(events).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     return next;
@@ -258,7 +346,7 @@ export const deleteCellOrRestAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
-  return sanitizeEvents(next);
+  return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
 export const moveStepByLen = (stepIndex: number, len: number): number => {
@@ -289,7 +377,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
       return null;
     }
 
-    const events = sanitizeEvents(firstMeasure.events as TabEvent[]);
+    const events = sanitizeEvents(firstMeasure.events as TabEvent[], STEPS_PER_MEASURE);
     return {
       version: 2,
       tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
@@ -339,7 +427,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
         Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
-      measures: [{ events: sanitizeEvents(events) }],
+      measures: [{ events: sanitizeEvents(events, STEPS_PER_MEASURE) }],
     };
   }
 
