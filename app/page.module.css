@@ -1,141 +1,334 @@
 .page {
-  --background: #fafafa;
-  --foreground: #fff;
-
-  --text-primary: #000;
-  --text-secondary: #666;
-
-  --button-primary-hover: #383838;
-  --button-secondary-hover: #f2f2f2;
-  --button-secondary-border: #ebebeb;
-
-  display: flex;
   min-height: 100vh;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-geist-sans);
-  background-color: var(--background);
+  background: linear-gradient(160deg, #e9f4ff 0%, #f7fafc 40%, #ecfff6 100%);
+  color: #0e1a2b;
+  padding: 20px;
 }
 
 .main {
-  display: flex;
-  min-height: 100vh;
-  width: 100%;
-  max-width: 800px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  background-color: var(--foreground);
-  padding: 120px 60px;
-}
-
-.intro {
+  max-width: 1160px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  gap: 24px;
+  gap: 14px;
 }
 
-.intro h1 {
-  max-width: 320px;
-  font-size: 40px;
-  font-weight: 600;
-  line-height: 48px;
-  letter-spacing: -2.4px;
-  text-wrap: balance;
-  color: var(--text-primary);
+.headerRow h1 {
+  font-size: 28px;
+  line-height: 1.1;
+  margin-bottom: 4px;
 }
 
-.intro p {
-  max-width: 440px;
-  font-size: 18px;
-  line-height: 32px;
-  text-wrap: balance;
-  color: var(--text-secondary);
+.headerRow p {
+  color: #355172;
 }
 
-.intro a {
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.ctas {
+.toolbar {
   display: flex;
-  flex-direction: row;
-  width: 100%;
-  max-width: 440px;
-  gap: 16px;
-  font-size: 14px;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.ctas a {
+.durationCard,
+.tempoCard {
+  border: 1px solid #a5c2dc;
+  background: #ffffffd9;
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.durationCard {
+  flex: 1 1 560px;
+}
+
+.tempoCard {
+  flex: 0 0 auto;
+  min-width: 180px;
+}
+
+.durationCard h3,
+.tempoCard h3 {
+  font-size: 13px;
+  color: #355172;
+  margin-bottom: 8px;
+}
+
+.durationGroup {
   display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 128px;
-  border: 1px solid transparent;
-  transition: 0.2s;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolButton {
+  border: 1px solid #2f5e85;
+  background: #ffffff;
+  color: #12324c;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
-  width: fit-content;
-  font-weight: 500;
 }
 
-a.primary {
-  background: var(--text-primary);
-  color: var(--background);
+.toolActive {
+  background: #dff0ff;
+  border-color: #0f5f99;
+  box-shadow: inset 0 0 0 1px #47a8eb;
+}
+
+.tempoControl {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 
-a.secondary {
-  border-color: var(--button-secondary-border);
+.tempoControl span {
+  font-size: 14px;
+  color: #234564;
+  font-weight: 700;
 }
 
-/* Enable hover only on non-touch devices */
-@media (hover: hover) and (pointer: fine) {
-  a.primary:hover {
-    background: var(--button-primary-hover);
-    border-color: transparent;
-  }
-
-  a.secondary:hover {
-    background: var(--button-secondary-hover);
-    border-color: transparent;
-  }
+.tempoControl button {
+  border: 1px solid #3b678b;
+  border-radius: 8px;
+  background: #fff;
+  width: 30px;
+  height: 30px;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-@media (max-width: 600px) {
-  .main {
-    padding: 48px 24px;
-  }
-
-  .intro {
-    gap: 16px;
-  }
-
-  .intro h1 {
-    font-size: 32px;
-    line-height: 40px;
-    letter-spacing: -1.92px;
-  }
+.tempoControl input {
+  width: 74px;
+  height: 30px;
+  border: 1px solid #6f99bb;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 14px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .logo {
-    filter: invert();
-  }
+.controls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
+.controls button,
+.importLabel {
+  border: 1px solid #214665;
+  background: #fff;
+  color: #16324a;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.importLabel {
+  position: relative;
+  overflow: hidden;
+}
+
+.importLabel input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.notationFrame {
+  border-radius: 12px;
+  border: 1px solid #aac4dd;
+  background: #ffffffdd;
+  padding: 10px;
+}
+
+.notationTitle {
+  font-size: 16px;
+  color: #1e3f5e;
+  margin-bottom: 8px;
+}
+
+.notationScroll {
+  overflow-x: auto;
+}
+
+.notationContent {
+  --label-width: 92px;
+  --step-width: 48px;
+  --slot-count: 16;
+  width: calc(var(--label-width) + (var(--step-width) * var(--slot-count)));
+  min-width: calc(var(--label-width) + (var(--step-width) * var(--slot-count)));
+}
+
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: var(--label-width) repeat(var(--slot-count), var(--step-width));
+  gap: 0;
+  align-items: center;
+}
+
+.stringLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: #274968;
+  text-align: right;
+  padding-right: 8px;
+}
+
+.cell {
+  position: relative;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: #12263b;
+  font-weight: 700;
+  font-size: 0;
+}
+
+.cell::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid #8fb1ce;
+  z-index: 1;
+}
+
+.cellValue {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  min-width: 12px;
+  transform: translateY(-1px);
+  padding: 0 2px;
+  line-height: 1;
+  font-size: 32px;
+  font-family: "Times New Roman", serif;
+  background: #ffffffdd;
+  color: #12263b;
+}
+
+.selected {
+  background: linear-gradient(0deg, #d8ecff55, #d8ecff55);
+  box-shadow: inset 0 0 0 2px #4ca6e6;
+}
+
+.playing {
+  background: linear-gradient(0deg, #fff0c655, #fff0c655);
+}
+
+.playing::before {
+  border-top-color: #b06d00;
+}
+
+.blocked {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.barStart::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid #1c2f42;
+  z-index: 3;
+}
+
+.barEnd::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  border-right: 2px solid #1c2f42;
+  z-index: 3;
+}
+
+.editPanel {
+  border: 1px solid #a6bed7;
+  background: #ffffffcc;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.editPanel h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.editPanel p {
+  color: #355172;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.editRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  margin-bottom: 6px;
+}
+
+.editRow input {
+  width: 120px;
+  border: 1px solid #6f99bb;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 16px;
+}
+
+.editRow button {
+  border: 1px solid #3d6788;
+  background: #ffffff;
+  color: #16324a;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
   .page {
-    --background: #000;
-    --foreground: #000;
+    padding: 14px;
+  }
 
-    --text-primary: #ededed;
-    --text-secondary: #999;
+  .headerRow h1 {
+    font-size: 24px;
+  }
 
-    --button-primary-hover: #ccc;
-    --button-secondary-hover: #1a1a1a;
-    --button-secondary-border: #1a1a1a;
+  .controls button,
+  .importLabel,
+  .toolButton {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+
+  .durationCard,
+  .tempoCard {
+    width: 100%;
+  }
+
+  .cellValue {
+    font-size: 28px;
+  }
+
+  .tempoControl {
+    width: 100%;
+  }
+
+  .editRow input {
+    width: 94px;
   }
 }
