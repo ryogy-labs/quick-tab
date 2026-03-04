@@ -275,6 +275,10 @@
   cursor: not-allowed;
 }
 
+.held::before {
+  border-top-color: #c3d1de;
+}
+
 .barStart::after {
   content: "";
   position: absolute;

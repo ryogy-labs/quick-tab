@@ -20,7 +20,8 @@ import {
   eventsToGrid,
   findEventAtStep,
   getCellFret,
-  isCellBlockedForNewStart,
+  isCellHeldByPreviousEvent,
+  isStepBlockedForNewStart,
   moveStepByLen,
   normalizeToTabDataV2,
   sanitizeTabDataV2,
@@ -83,23 +84,36 @@ export default function Home() {
   const blockedStepSet = useMemo(() => {
     const set = new Set<number>();
     visibleSteps.forEach((step) => {
-      if (isCellBlockedForNewStart(events, step, selected.rowIndex)) {
+      if (isStepBlockedForNewStart(events, step)) {
         set.add(step);
       }
     });
     return set;
-  }, [events, visibleSteps, selected.rowIndex]);
+  }, [events, visibleSteps]);
   const measureGrids = useMemo(
     () => tabData.measures.map((measure) => eventsToGrid(measure.events)),
     [tabData.measures]
   );
   const blockedStepsByMeasure = useMemo(
     () =>
+      tabData.measures.map((measure) => {
+        const set = new Set<number>();
+        visibleSteps.forEach((step) => {
+          if (isStepBlockedForNewStart(measure.events, step)) {
+            set.add(step);
+          }
+        });
+        return set;
+      }),
+    [tabData.measures, visibleSteps]
+  );
+  const heldStepsByMeasure = useMemo(
+    () =>
       tabData.measures.map((measure) =>
         Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => {
           const set = new Set<number>();
           visibleSteps.forEach((step) => {
-            if (isCellBlockedForNewStart(measure.events, step, rowIndex)) {
+            if (isCellHeldByPreviousEvent(measure.events, rowIndex, step)) {
               set.add(step);
             }
           });
@@ -109,19 +123,8 @@ export default function Home() {
     [tabData.measures, visibleSteps]
   );
 
-  const getNearestSelectableStep = (
-    targetStep: number,
-    rowIndex = selected.rowIndex,
-    measureIndex = selectedMeasureIndex
-  ): number => {
-    const measureEvents = getMeasureEvents(tabData, measureIndex);
-    const blockedSteps = new Set<number>();
-    visibleSteps.forEach((step) => {
-      if (isCellBlockedForNewStart(measureEvents, step, rowIndex)) {
-        blockedSteps.add(step);
-      }
-    });
-    const selectable = visibleSteps.filter((step) => !blockedSteps.has(step));
+  const getNearestSelectableStep = (targetStep: number): number => {
+    const selectable = visibleSteps.filter((step) => !blockedStepSet.has(step));
     if (selectable.length === 0) {
       return 0;
     }
@@ -164,11 +167,7 @@ export default function Home() {
     setSelected({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
-      stepIndex: getNearestSelectableStep(
-        clampedStep,
-        Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
-        clampedMeasure
-      ),
+      stepIndex: getNearestSelectableStep(clampedStep),
     });
   };
 
@@ -195,12 +194,7 @@ export default function Home() {
 
   const commitNoteAtSelected = (fret: number) => {
     const safeFret = clampFret(fret);
-    if (
-      !canPlaceEvent(events, selected.stepIndex, inputLen, {
-        ignoreStep: selected.stepIndex,
-        stringNumbers: [selected.rowIndex + 1],
-      })
-    ) {
+    if (!canPlaceEvent(events, selected.stepIndex, inputLen, { ignoreStep: selected.stepIndex })) {
       return;
     }
     setTabData((prev) => {
@@ -460,16 +454,7 @@ export default function Home() {
       return;
     }
 
-    const targetStrings =
-      "rest" in currentEvent && currentEvent.rest
-        ? undefined
-        : currentEvent.notes.map((note) => note.string);
-    if (
-      !canPlaceEvent(events, selected.stepIndex, len, {
-        ignoreStep: selected.stepIndex,
-        stringNumbers: targetStrings,
-      })
-    ) {
+    if (!canPlaceEvent(events, selected.stepIndex, len, { ignoreStep: selected.stepIndex })) {
       return;
     }
 
@@ -791,8 +776,9 @@ export default function Home() {
                         playCursor?.stepIndex === stepIndex;
                       const isBarStart = slotIndex === 0;
                       const isBarEnd = slotIndex === displaySlots - 1;
-                      const isBlocked =
-                        blockedStepsByMeasure[measureIndex]?.[rowIndex]?.has(stepIndex) ?? false;
+                      const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
+                      const isHeld =
+                        heldStepsByMeasure[measureIndex]?.[rowIndex]?.has(stepIndex) ?? false;
                       return (
                         <button
                           key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
@@ -803,7 +789,7 @@ export default function Home() {
                             isBarStart ? styles.barStart : ""
                           } ${isBarEnd ? styles.barEnd : ""} ${
                             isBlocked ? styles.blocked : ""
-                          }`.trim()}
+                          } ${isHeld ? styles.held : ""}`.trim()}
                           onClick={() => {
                             if (isBlocked) {
                               return;
