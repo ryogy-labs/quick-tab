@@ -26,7 +26,6 @@ import {
   getCellFret,
   insertMeasure,
   isStepBlockedForNewStart,
-  moveStepByLen,
   normalizeToTabDataV2,
   pasteMeasure,
   sanitizeTabDataV2,
@@ -54,6 +53,12 @@ type TimelineLayout = {
   stepsPerMeasure: number;
 };
 
+type CursorAdvanceResult = {
+  nextData: TabDataV2;
+  nextSelected: CellPosition;
+  didAppendMeasure: boolean;
+};
+
 const toGlobalStep = (cursor: PlayCursor): number =>
   cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
 
@@ -72,6 +77,60 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
     tagName === "TEXTAREA" ||
     target.isContentEditable
   );
+};
+
+const appendEmptyMeasure = (data: TabDataV2): TabDataV2 => ({
+  ...data,
+  measures: [...data.measures, { events: [] }],
+});
+
+const getNextCursorPositionWithAutoAppend = (
+  data: TabDataV2,
+  selected: CellPosition,
+  moveAmount: number,
+  isPlaying: boolean
+): CursorAdvanceResult => {
+  const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
+  const totalMeasures = data.measures.length;
+  const absoluteStep = selected.measureIndex * STEPS_PER_MEASURE + selected.stepIndex + safeMoveAmount;
+  const maxStepExclusive = totalMeasures * STEPS_PER_MEASURE;
+
+  if (absoluteStep < maxStepExclusive) {
+    return {
+      nextData: data,
+      nextSelected: {
+        ...selected,
+        measureIndex: Math.floor(absoluteStep / STEPS_PER_MEASURE),
+        stepIndex: absoluteStep % STEPS_PER_MEASURE,
+      },
+      didAppendMeasure: false,
+    };
+  }
+
+  const isAtLastMeasure = selected.measureIndex === totalMeasures - 1;
+  if (isPlaying || !isAtLastMeasure) {
+    return {
+      nextData: data,
+      nextSelected: {
+        ...selected,
+        measureIndex: totalMeasures - 1,
+        stepIndex: STEPS_PER_MEASURE - 1,
+      },
+      didAppendMeasure: false,
+    };
+  }
+
+  const appendedData = appendEmptyMeasure(data);
+  const overflowStep = absoluteStep - maxStepExclusive;
+  return {
+    nextData: appendedData,
+    nextSelected: {
+      ...selected,
+      measureIndex: totalMeasures,
+      stepIndex: Math.min(STEPS_PER_MEASURE - 1, Math.max(0, overflowStep)),
+    },
+    didAppendMeasure: true,
+  };
 };
 
 export default function Home() {
@@ -193,24 +252,38 @@ export default function Home() {
   };
 
   const moveHorizontal = (delta: number) => {
-    setSelected((prev) => {
-      const current = getNearestSelectableStep(prev.stepIndex);
-      const currentIndex = visibleSteps.indexOf(current);
-      if (currentIndex === -1) {
-        return { ...prev, stepIndex: getNearestSelectableStep(0) };
-      }
+    const current = getNearestSelectableStep(selected.stepIndex);
+    const currentIndex = visibleSteps.indexOf(current);
+    if (currentIndex === -1) {
+      setSelected((prev) => ({ ...prev, stepIndex: getNearestSelectableStep(0) }));
+      return;
+    }
 
-      let nextIndex = currentIndex + delta;
-      while (nextIndex >= 0 && nextIndex < visibleSteps.length) {
-        const candidate = visibleSteps[nextIndex];
-        if (!blockedStepSet.has(candidate)) {
-          return { ...prev, stepIndex: candidate };
-        }
-        nextIndex += delta;
+    let nextIndex = currentIndex + delta;
+    while (nextIndex >= 0 && nextIndex < visibleSteps.length) {
+      const candidate = visibleSteps[nextIndex];
+      if (!blockedStepSet.has(candidate)) {
+        setSelected((prev) => ({ ...prev, stepIndex: candidate }));
+        return;
       }
+      nextIndex += delta;
+    }
 
-      return { ...prev, stepIndex: current };
-    });
+    if (delta > 0) {
+      const result = getNextCursorPositionWithAutoAppend(
+        tabData,
+        { ...selected, stepIndex: current },
+        displayUnit,
+        isPlaying
+      );
+      if (result.didAppendMeasure) {
+        setTabData(result.nextData);
+      }
+      setSelected(result.nextSelected);
+      return;
+    }
+
+    setSelected((prev) => ({ ...prev, stepIndex: current }));
   };
 
   const commitNoteAtSelected = (fret: number) => {
@@ -218,32 +291,29 @@ export default function Home() {
     if (!canPlaceEvent(events, selected.stepIndex, inputLen, { ignoreStep: selected.stepIndex })) {
       return;
     }
-    setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
-      const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, inputLen);
-      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
-    });
-
-    setSelected((prev) => ({
-      ...prev,
-      stepIndex: moveStepByLen(prev.stepIndex, inputLen),
-    }));
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, inputLen);
+    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
+    const result = getNextCursorPositionWithAutoAppend(updatedData, selected, inputLen, isPlaying);
+    setTabData(result.nextData);
+    setSelected(result.nextSelected);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
     if (!canPlaceEvent(events, stepIndex, inputLen, { ignoreStep: stepIndex })) {
       return;
     }
-    setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
-      const nextEvents = upsertRestAtStep(measureEvents, stepIndex, inputLen);
-      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
-    });
-
-    setSelected((prev) => ({
-      ...prev,
-      stepIndex: moveStepByLen(stepIndex, inputLen),
-    }));
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, inputLen);
+    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
+    const result = getNextCursorPositionWithAutoAppend(
+      updatedData,
+      { ...selected, stepIndex },
+      inputLen,
+      isPlaying
+    );
+    setTabData(result.nextData);
+    setSelected(result.nextSelected);
   };
 
   const stopPlayback = useMemo(
