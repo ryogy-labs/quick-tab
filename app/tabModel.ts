@@ -59,6 +59,25 @@ export type DurationOption = {
   isRest: boolean;
 };
 
+export type StepRangePoint = {
+  measureIndex: number;
+  stepIndex: number;
+};
+
+export type StepRangeSelection = {
+  startMeasureIndex: number;
+  startStepIndex: number;
+  endMeasureIndex: number;
+  endStepIndex: number;
+};
+
+export type StepRangeClipboard = {
+  sourceMeasureIndex: number;
+  startStepIndex: number;
+  length: number;
+  events: TabEvent[];
+};
+
 type PlacementOptions = {
   ignoreStep?: number;
 };
@@ -167,6 +186,107 @@ export const deleteMeasure = (
   const measures = [...data.measures];
   measures.splice(safeIndex, 1);
   return sanitizeTabDataV2({ ...data, measures });
+};
+
+export const normalizeStepRange = (
+  anchor: StepRangePoint,
+  current: StepRangePoint
+): StepRangeSelection => {
+  // MVP: range selection is clamped to the anchor measure only.
+  const measureIndex = anchor.measureIndex;
+  const currentStepIndex =
+    current.measureIndex === anchor.measureIndex ? current.stepIndex : anchor.stepIndex;
+  return {
+    startMeasureIndex: measureIndex,
+    startStepIndex: Math.min(anchor.stepIndex, currentStepIndex),
+    endMeasureIndex: measureIndex,
+    endStepIndex: Math.max(anchor.stepIndex, currentStepIndex),
+  };
+};
+
+export const isStepInRange = (
+  range: StepRangeSelection | null,
+  measureIndex: number,
+  stepIndex: number
+): boolean => {
+  if (!range) {
+    return false;
+  }
+  return (
+    measureIndex === range.startMeasureIndex &&
+    measureIndex === range.endMeasureIndex &&
+    stepIndex >= range.startStepIndex &&
+    stepIndex <= range.endStepIndex
+  );
+};
+
+export const extractRangeClipboardFromMeasure = (
+  events: TabEvent[],
+  range: StepRangeSelection
+): StepRangeClipboard => {
+  const clippedEvents = sanitizeEvents(events, STEPS_PER_MEASURE)
+    .filter((event) => event.step >= range.startStepIndex && event.step <= range.endStepIndex)
+    .map((event) => {
+      if ("rest" in event && event.rest) {
+        return {
+          step: event.step - range.startStepIndex,
+          len: event.len,
+          rest: true as const,
+        };
+      }
+      return {
+        step: event.step - range.startStepIndex,
+        len: event.len,
+        notes: event.notes.map(cloneNote),
+      };
+    });
+
+  return {
+    sourceMeasureIndex: range.startMeasureIndex,
+    startStepIndex: range.startStepIndex,
+    length: range.endStepIndex - range.startStepIndex + 1,
+    events: clippedEvents,
+  };
+};
+
+export const pasteRangeClipboardIntoMeasure = (
+  events: TabEvent[],
+  startStepIndex: number,
+  clipboard: StepRangeClipboard
+): TabEvent[] => {
+  const safeStartStep = clampStep(startStepIndex);
+  const targetWindowLen = Math.max(1, clipboard.length);
+  const baseEvents = sanitizeEvents(events, STEPS_PER_MEASURE).filter(
+    (event) => !rangesOverlap(event.step, event.len, safeStartStep, targetWindowLen)
+  );
+
+  let nextEvents = [...baseEvents];
+  clipboard.events.forEach((event) => {
+    const shiftedStep = safeStartStep + event.step;
+    if (shiftedStep >= STEPS_PER_MEASURE) {
+      console.warn(`[tabModel] skipped pasted event beyond measure: step=${shiftedStep}`);
+      return;
+    }
+
+    const shiftedEvent: TabEvent =
+      "rest" in event && event.rest
+        ? { step: shiftedStep, len: event.len, rest: true }
+        : {
+            step: shiftedStep,
+            len: event.len,
+            notes: event.notes.map(cloneNote),
+          };
+
+    if (!canPlaceEvent(nextEvents, shiftedEvent.step, shiftedEvent.len, { ignoreStep: shiftedEvent.step })) {
+      console.warn(`[tabModel] skipped pasted event due to collision: step=${shiftedEvent.step}`);
+      return;
+    }
+
+    nextEvents = [...nextEvents.filter((existing) => existing.step !== shiftedEvent.step), shiftedEvent];
+    nextEvents = sanitizeEvents(nextEvents, STEPS_PER_MEASURE);
+  });
+
+  return sanitizeEvents(nextEvents, STEPS_PER_MEASURE);
 };
 
 const clampInt = (value: number, min: number, max: number): number =>
