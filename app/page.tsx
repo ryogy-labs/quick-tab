@@ -3,6 +3,7 @@
 import { ChangeEvent, CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
+import FretboardInput from "./components/FretboardInput";
 import {
   CellPosition,
   DURATION_OPTIONS,
@@ -333,6 +334,38 @@ export default function Home() {
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
       selected,
+      activeInputLen,
+      isPlaying
+    );
+    setTabData(result.nextData);
+    setSingleCellSelection(result.nextSelected);
+  };
+
+  const commitFretboardNote = (rowIndex: number, fret: number) => {
+    if (isPlaying) {
+      return;
+    }
+
+    // TAB row mapping: rowIndex 0 => 1st string (E4), rowIndex 5 => 6th string (E2).
+    const nextSelected = {
+      ...selected,
+      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, rowIndex)),
+    };
+    setSelected(nextSelected);
+    setSelectedRange(null);
+    setDragSelectionAnchor(null);
+    setIsDraggingRange(false);
+
+    const safeFret = clampFret(fret);
+    if (!canPlaceEvent(events, nextSelected.stepIndex, activeInputLen, { ignoreStep: nextSelected.stepIndex })) {
+      return;
+    }
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = upsertNoteAtCell(measureEvents, nextSelected, safeFret, activeInputLen);
+    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
+    const result = getNextCursorPositionWithAutoAppend(
+      updatedData,
+      nextSelected,
       activeInputLen,
       isPlaying
     );
@@ -1236,6 +1269,12 @@ export default function Home() {
             Enter to place rest in Rest mode.
           </p>
         </div>
+
+        <FretboardInput
+          selectedRowIndex={selected.rowIndex}
+          onSelectFret={commitFretboardNote}
+          isPlaying={isPlaying}
+        />
       </main>
     </div>
   );
