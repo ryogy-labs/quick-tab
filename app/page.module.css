@@ -271,12 +271,15 @@
 }
 
 .blocked {
-  opacity: 0.3;
   cursor: not-allowed;
 }
 
 .held::before {
   border-top-color: #c3d1de;
+}
+
+.cell:disabled {
+  opacity: 1;
 }
 
 .barStart::after {
