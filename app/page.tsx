@@ -8,6 +8,9 @@ import {
   DURATION_OPTIONS,
   OPEN_STRING_MIDI_BY_STRING,
   STEPS_PER_MEASURE,
+  StepRangeClipboard,
+  StepRangePoint,
+  StepRangeSelection,
   STRINGS_COUNT,
   TUNING,
   TabDataV2,
@@ -22,12 +25,16 @@ import {
   deleteCellOrRestAtStep,
   duplicateMeasure,
   eventsToGrid,
+  extractRangeClipboardFromMeasure,
   findEventAtStep,
   getCellFret,
   insertMeasure,
   isStepBlockedForNewStart,
+  isStepInRange,
   normalizeToTabDataV2,
+  normalizeStepRange,
   pasteMeasure,
+  pasteRangeClipboardIntoMeasure,
   sanitizeTabDataV2,
   toFrequency,
   updateEventLengthAtStep,
@@ -145,6 +152,10 @@ export default function Home() {
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [mobileFretInput, setMobileFretInput] = useState<string>("");
   const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
+  const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
+  const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
+  const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
+  const [isDraggingRange, setIsDraggingRange] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
 
@@ -365,6 +376,20 @@ export default function Home() {
   }, [tabData]);
 
   useEffect(() => {
+    if (!isDraggingRange) {
+      return;
+    }
+
+    const handleMouseUp = () => {
+      setIsDraggingRange(false);
+      setDragSelectionAnchor(null);
+    };
+
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => window.removeEventListener("mouseup", handleMouseUp);
+  }, [isDraggingRange]);
+
+  useEffect(() => {
     return () => {
       stopPlayback();
       clearDigitBuffer();
@@ -542,6 +567,47 @@ export default function Home() {
     setTabData((prev) => pasteMeasure(prev, selectedMeasureIndex, measureClipboard));
   };
 
+  const handleRangeMouseDown = (measureIndex: number, stepIndex: number) => {
+    const anchor = { measureIndex, stepIndex };
+    setDragSelectionAnchor(anchor);
+    setSelectedRange(normalizeStepRange(anchor, anchor));
+    setIsDraggingRange(true);
+  };
+
+  const handleRangeMouseEnter = (measureIndex: number, stepIndex: number) => {
+    if (!isDraggingRange || !dragSelectionAnchor) {
+      return;
+    }
+    setSelectedRange(
+      normalizeStepRange(dragSelectionAnchor, {
+        measureIndex,
+        stepIndex,
+      })
+    );
+  };
+
+  const handleCopyRange = () => {
+    if (!selectedRange) {
+      return;
+    }
+    const sourceEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+    setRangeClipboard(extractRangeClipboardFromMeasure(sourceEvents, selectedRange));
+  };
+
+  const handlePasteRange = () => {
+    if (!rangeClipboard || isPlaying) {
+      return;
+    }
+
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = pasteRangeClipboardIntoMeasure(
+      measureEvents,
+      selected.stepIndex,
+      rangeClipboard
+    );
+    setTabData((prev) => updateMeasureEvents(prev, selectedMeasureIndex, nextEvents));
+  };
+
   const handleDeleteMeasure = () => {
     if (isPlaying || totalMeasures <= 1) {
       return;
@@ -653,11 +719,24 @@ export default function Home() {
       if (withCommandKey && !editableTarget) {
         if (key.toLowerCase() === "c") {
           event.preventDefault();
-          handleCopyMeasure();
+          if (selectedRange) {
+            handleCopyRange();
+          } else {
+            handleCopyMeasure();
+          }
           return;
         }
 
         if (key.toLowerCase() === "v") {
+          if (rangeClipboard) {
+            if (isPlaying) {
+              return;
+            }
+            event.preventDefault();
+            handlePasteRange();
+            return;
+          }
+
           if (!measureClipboard || isPlaying) {
             return;
           }
@@ -715,7 +794,17 @@ export default function Home() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [inputLen, isPlaying, isRestMode, measureClipboard, selected, selectedMeasureIndex, tabData]);
+  }, [
+    inputLen,
+    isPlaying,
+    isRestMode,
+    measureClipboard,
+    rangeClipboard,
+    selected,
+    selectedMeasureIndex,
+    selectedRange,
+    tabData,
+  ]);
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(tabData, null, 2)], {
@@ -885,6 +974,16 @@ export default function Home() {
           >
             Paste Measure
           </button>
+          <button type="button" onClick={handleCopyRange} disabled={selectedRange === null}>
+            Copy Range
+          </button>
+          <button
+            type="button"
+            onClick={handlePasteRange}
+            disabled={isPlaying || rangeClipboard === null}
+          >
+            Paste Range
+          </button>
           <span>Measure {selectedMeasureIndex + 1} / {totalMeasures}</span>
         </div>
 
@@ -990,6 +1089,11 @@ export default function Home() {
                       const isCurrentStep =
                         playCursor?.measureIndex === measureIndex &&
                         playCursor?.stepIndex === stepIndex;
+                      const isRangeSelected = isStepInRange(
+                        selectedRange,
+                        measureIndex,
+                        stepIndex
+                      );
                       const isBarStart = slotIndex === 0;
                       const isBarEnd = slotIndex === displaySlots - 1;
                       const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
@@ -999,18 +1103,24 @@ export default function Home() {
                           type="button"
                           className={`${styles.cell} ${
                             isSelected ? styles.selected : ""
+                          } ${isRangeSelected ? styles.rangeSelected : ""} ${
+                            isDraggingRange ? styles.dragSelecting : ""
                           } ${isCurrentStep ? styles.playing : ""} ${
                             isBarStart ? styles.barStart : ""
                           } ${isBarEnd ? styles.barEnd : ""} ${
                             isBlocked ? styles.blocked : ""
                           }`.trim()}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handleRangeMouseDown(measureIndex, stepIndex);
+                          }}
+                          onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
                           onClick={() => {
                             if (isBlocked) {
                               return;
                             }
                             setSelected({ measureIndex, rowIndex, stepIndex });
                           }}
-                          disabled={isBlocked}
                         >
                           <span className={styles.cellValue}>
                             {cell?.fret !== null && cell?.fret !== undefined

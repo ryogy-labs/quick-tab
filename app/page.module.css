@@ -262,6 +262,14 @@
   box-shadow: inset 0 0 0 2px #4ca6e6;
 }
 
+.rangeSelected {
+  background: linear-gradient(0deg, #b8ddff55, #b8ddff55);
+}
+
+.dragSelecting {
+  user-select: none;
+}
+
 .playing {
   background: linear-gradient(0deg, #fff0c655, #fff0c655);
 }
