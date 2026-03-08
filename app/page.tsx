@@ -302,6 +302,15 @@ export default function Home() {
       return;
     }
 
+    if (delta < 0 && current === 0 && selected.measureIndex > 0) {
+      setSingleCellSelection({
+        ...selected,
+        measureIndex: selected.measureIndex - 1,
+        stepIndex: STEPS_PER_MEASURE - 1,
+      });
+      return;
+    }
+
     setSingleCellSelection({ ...selected, stepIndex: current });
   };
 
