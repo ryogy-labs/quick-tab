@@ -271,8 +271,11 @@
 }
 
 .blocked {
-  opacity: 0.3;
   cursor: not-allowed;
+}
+
+.cell:disabled {
+  opacity: 1;
 }
 
 .barStart::after {
