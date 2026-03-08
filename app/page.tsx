@@ -18,11 +18,13 @@ import {
   canPlaceEvent,
   copyMeasure,
   createEmptyTabDataV2,
+  deleteMeasure,
   deleteCellOrRestAtStep,
   duplicateMeasure,
   eventsToGrid,
   findEventAtStep,
   getCellFret,
+  insertMeasure,
   isStepBlockedForNewStart,
   moveStepByLen,
   normalizeToTabDataV2,
@@ -433,6 +435,19 @@ export default function Home() {
     });
   };
 
+  const handleInsertMeasure = () => {
+    if (isPlaying) {
+      return;
+    }
+
+    setTabData((prev) => insertMeasure(prev, selectedMeasureIndex));
+    setSelected({
+      measureIndex: selectedMeasureIndex,
+      rowIndex: 0,
+      stepIndex: 0,
+    });
+  };
+
   const handleDuplicateMeasure = () => {
     if (isPlaying) {
       return;
@@ -455,6 +470,20 @@ export default function Home() {
     }
 
     setTabData((prev) => pasteMeasure(prev, selectedMeasureIndex, measureClipboard));
+  };
+
+  const handleDeleteMeasure = () => {
+    if (isPlaying || totalMeasures <= 1) {
+      return;
+    }
+
+    setTabData((prev) => deleteMeasure(prev, selectedMeasureIndex));
+    setSelected((prev) => ({
+      ...prev,
+      measureIndex: Math.min(selectedMeasureIndex, totalMeasures - 2),
+      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+    }));
   };
 
   const handleDelete = () => {
@@ -762,6 +791,16 @@ export default function Home() {
           </button>
           <button type="button" onClick={handleAddMeasure} disabled={isPlaying}>
             + Measure
+          </button>
+          <button type="button" onClick={handleInsertMeasure} disabled={isPlaying}>
+            Insert Measure
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteMeasure}
+            disabled={isPlaying || totalMeasures <= 1}
+          >
+            Delete Measure
           </button>
           <button type="button" onClick={handleDuplicateMeasure} disabled={isPlaying}>
             Duplicate Measure

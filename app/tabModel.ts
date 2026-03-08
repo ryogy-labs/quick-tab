@@ -145,6 +145,30 @@ export const pasteMeasure = (
   return sanitizeTabDataV2({ ...data, measures });
 };
 
+export const insertMeasure = (
+  data: TabDataV2,
+  measureIndex: number
+): TabDataV2 => {
+  const safeIndex = clampInt(measureIndex, 0, data.measures.length);
+  const measures = [...data.measures];
+  measures.splice(safeIndex, 0, { events: [] });
+  return sanitizeTabDataV2({ ...data, measures });
+};
+
+export const deleteMeasure = (
+  data: TabDataV2,
+  measureIndex: number
+): TabDataV2 => {
+  if (data.measures.length <= 1) {
+    return sanitizeTabDataV2(data);
+  }
+
+  const safeIndex = clampInt(measureIndex, 0, data.measures.length - 1);
+  const measures = [...data.measures];
+  measures.splice(safeIndex, 1);
+  return sanitizeTabDataV2({ ...data, measures });
+};
+
 const clampInt = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, Math.trunc(value)));
 
