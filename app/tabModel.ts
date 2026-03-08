@@ -95,6 +95,56 @@ export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
   };
 };
 
+const cloneNote = (note: TabNoteEventNote): TabNoteEventNote => ({
+  string: note.string,
+  fret: note.fret,
+});
+
+const cloneEvent = (event: TabEvent): TabEvent => {
+  if ("rest" in event && event.rest) {
+    return { step: event.step, len: event.len, rest: true };
+  }
+  return {
+    step: event.step,
+    len: event.len,
+    notes: event.notes.map(cloneNote),
+  };
+};
+
+export const cloneMeasure = (measure: TabMeasureV2): TabMeasureV2 => ({
+  events: measure.events.map(cloneEvent),
+});
+
+export const copyMeasure = (
+  data: TabDataV2,
+  measureIndex: number
+): TabMeasureV2 => {
+  const source = data.measures.at(measureIndex) ?? { events: [] };
+  return cloneMeasure(source);
+};
+
+export const duplicateMeasure = (
+  data: TabDataV2,
+  measureIndex: number
+): TabDataV2 => {
+  const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
+  const duplicate = copyMeasure(data, safeIndex);
+  const measures = [...data.measures];
+  measures.splice(safeIndex + 1, 0, duplicate);
+  return sanitizeTabDataV2({ ...data, measures });
+};
+
+export const pasteMeasure = (
+  data: TabDataV2,
+  measureIndex: number,
+  source: TabMeasureV2
+): TabDataV2 => {
+  const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
+  const measures = [...data.measures];
+  measures[safeIndex] = cloneMeasure(source);
+  return sanitizeTabDataV2({ ...data, measures });
+};
+
 const clampInt = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, Math.trunc(value)));
 

@@ -12,17 +12,21 @@ import {
   TUNING,
   TabDataV2,
   TabEvent,
+  TabMeasureV2,
   clampFret,
   clampTempo,
   canPlaceEvent,
+  copyMeasure,
   createEmptyTabDataV2,
   deleteCellOrRestAtStep,
+  duplicateMeasure,
   eventsToGrid,
   findEventAtStep,
   getCellFret,
   isStepBlockedForNewStart,
   moveStepByLen,
   normalizeToTabDataV2,
+  pasteMeasure,
   sanitizeTabDataV2,
   toFrequency,
   updateEventLengthAtStep,
@@ -56,6 +60,18 @@ const getMeasureStartX = (measureIndex: number, layout: TimelineLayout): number 
   return layout.labelWidth + measureIndex * measureWidth;
 };
 
+const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tagName = target.tagName;
+  return (
+    tagName === "INPUT" ||
+    tagName === "TEXTAREA" ||
+    target.isContentEditable
+  );
+};
+
 export default function Home() {
   const [tabData, setTabData] = useState<TabDataV2>(createEmptyTabDataV2);
   const [selected, setSelected] = useState<CellPosition>({
@@ -67,6 +83,7 @@ export default function Home() {
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [mobileFretInput, setMobileFretInput] = useState<string>("");
+  const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
 
@@ -416,6 +433,30 @@ export default function Home() {
     });
   };
 
+  const handleDuplicateMeasure = () => {
+    if (isPlaying) {
+      return;
+    }
+
+    setTabData((prev) => duplicateMeasure(prev, selectedMeasureIndex));
+    setSelected((prev) => ({
+      ...prev,
+      measureIndex: Math.min(totalMeasures, selectedMeasureIndex + 1),
+    }));
+  };
+
+  const handleCopyMeasure = () => {
+    setMeasureClipboard(copyMeasure(tabData, selectedMeasureIndex));
+  };
+
+  const handlePasteMeasure = () => {
+    if (!measureClipboard || isPlaying) {
+      return;
+    }
+
+    setTabData((prev) => pasteMeasure(prev, selectedMeasureIndex, measureClipboard));
+  };
+
   const handleDelete = () => {
     clearDigitBuffer();
     setTabData((prev) => {
@@ -507,6 +548,25 @@ export default function Home() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const key = event.key;
+      const withCommandKey = event.metaKey || event.ctrlKey;
+      const editableTarget = isEditableTarget(event.target);
+
+      if (withCommandKey && !editableTarget) {
+        if (key.toLowerCase() === "c") {
+          event.preventDefault();
+          handleCopyMeasure();
+          return;
+        }
+
+        if (key.toLowerCase() === "v") {
+          if (!measureClipboard || isPlaying) {
+            return;
+          }
+          event.preventDefault();
+          handlePasteMeasure();
+          return;
+        }
+      }
 
       if (key >= "0" && key <= "9") {
         event.preventDefault();
@@ -556,7 +616,7 @@ export default function Home() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selected, isRestMode, inputLen]);
+  }, [inputLen, isPlaying, isRestMode, measureClipboard, selected, selectedMeasureIndex, tabData]);
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(tabData, null, 2)], {
@@ -702,6 +762,19 @@ export default function Home() {
           </button>
           <button type="button" onClick={handleAddMeasure} disabled={isPlaying}>
             + Measure
+          </button>
+          <button type="button" onClick={handleDuplicateMeasure} disabled={isPlaying}>
+            Duplicate Measure
+          </button>
+          <button type="button" onClick={handleCopyMeasure}>
+            Copy Measure
+          </button>
+          <button
+            type="button"
+            onClick={handlePasteMeasure}
+            disabled={isPlaying || measureClipboard === null}
+          >
+            Paste Measure
           </button>
           <span>Measure {selectedMeasureIndex + 1} / {totalMeasures}</span>
         </div>
