@@ -34,10 +34,26 @@ const STORAGE_KEY = "quick-tab:mvp:v2";
 const TAB_LABEL_WIDTH = 92;
 const TAB_SLOT_WIDTH = 48;
 const TAB_MEASURE_WIDTH = TAB_SLOT_WIDTH * STEPS_PER_MEASURE;
+const MEASURE_SCROLL_PADDING = 24;
 
 type PlayCursor = {
   measureIndex: number;
   stepIndex: number;
+};
+
+type TimelineLayout = {
+  labelWidth: number;
+  stepWidth: number;
+  stepUnit: number;
+  stepsPerMeasure: number;
+};
+
+const toGlobalStep = (cursor: PlayCursor): number =>
+  cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
+
+const getMeasureStartX = (measureIndex: number, layout: TimelineLayout): number => {
+  const measureWidth = (layout.stepsPerMeasure / layout.stepUnit) * layout.stepWidth;
+  return layout.labelWidth + measureIndex * measureWidth;
 };
 
 export default function Home() {
@@ -58,6 +74,8 @@ export default function Home() {
   const digitTimerRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
 
   const selectedMeasureIndex = Math.max(
     0,
@@ -585,11 +603,43 @@ export default function Home() {
     [tabData.measures]
   );
   const totalDisplaySlots = displaySlots * totalMeasures;
+  const currentGlobalStep = playCursor ? toGlobalStep(playCursor) : null;
+  const currentPlaybackMeasureIndex =
+    currentGlobalStep === null
+      ? null
+      : Math.floor(currentGlobalStep / STEPS_PER_MEASURE);
   const notationStyle = {
     "--label-width": `${TAB_LABEL_WIDTH}px`,
     "--step-width": `${stepWidth}px`,
     "--slot-count": String(totalDisplaySlots),
   } as CSSProperties;
+
+  useEffect(() => {
+    if (!isPlaying || currentPlaybackMeasureIndex === null) {
+      prevPlaybackMeasureIndexRef.current = null;
+      return;
+    }
+
+    if (prevPlaybackMeasureIndexRef.current === currentPlaybackMeasureIndex) {
+      return;
+    }
+
+    const container = timelineScrollRef.current;
+    if (!container) {
+      prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
+      return;
+    }
+
+    const measureStartX = getMeasureStartX(currentPlaybackMeasureIndex, {
+      labelWidth: TAB_LABEL_WIDTH,
+      stepWidth,
+      stepUnit: displayUnit,
+      stepsPerMeasure: STEPS_PER_MEASURE,
+    });
+    const nextLeft = Math.max(0, measureStartX - MEASURE_SCROLL_PADDING);
+    container.scrollTo({ left: nextLeft, behavior: "auto" });
+    prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
+  }, [currentPlaybackMeasureIndex, displayUnit, isPlaying, stepWidth]);
 
   useEffect(() => {
     setSelected((prev) => {
@@ -731,7 +781,7 @@ export default function Home() {
         <div className={styles.notationFrame}>
           <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
           <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
-          <div className={styles.notationScroll}>
+          <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
                 measuresEvents={measuresEvents}
