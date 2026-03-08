@@ -165,6 +165,7 @@ export default function Home() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
+  const didDragRangeRef = useRef(false);
 
   const selectedMeasureIndex = Math.max(
     0,
@@ -249,13 +250,20 @@ export default function Home() {
     }
   };
 
+  const setSingleCellSelection = (next: CellPosition) => {
+    setSelected(next);
+    setSelectedRange(null);
+    setDragSelectionAnchor(null);
+    setIsDraggingRange(false);
+  };
+
   const moveSelection = (next: CellPosition) => {
     const clampedMeasure = Math.max(
       0,
       Math.min(tabData.measures.length - 1, next.measureIndex)
     );
     const clampedStep = Math.max(0, Math.min(STEPS_PER_MEASURE - 1, next.stepIndex));
-    setSelected({
+    setSingleCellSelection({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
       stepIndex: getNearestSelectableStep(clampedStep),
@@ -266,7 +274,7 @@ export default function Home() {
     const current = getNearestSelectableStep(selected.stepIndex);
     const currentIndex = visibleSteps.indexOf(current);
     if (currentIndex === -1) {
-      setSelected((prev) => ({ ...prev, stepIndex: getNearestSelectableStep(0) }));
+      setSingleCellSelection({ ...selected, stepIndex: getNearestSelectableStep(0) });
       return;
     }
 
@@ -274,7 +282,7 @@ export default function Home() {
     while (nextIndex >= 0 && nextIndex < visibleSteps.length) {
       const candidate = visibleSteps[nextIndex];
       if (!blockedStepSet.has(candidate)) {
-        setSelected((prev) => ({ ...prev, stepIndex: candidate }));
+        setSingleCellSelection({ ...selected, stepIndex: candidate });
         return;
       }
       nextIndex += delta;
@@ -290,11 +298,11 @@ export default function Home() {
       if (result.didAppendMeasure) {
         setTabData(result.nextData);
       }
-      setSelected(result.nextSelected);
+      setSingleCellSelection(result.nextSelected);
       return;
     }
 
-    setSelected((prev) => ({ ...prev, stepIndex: current }));
+    setSingleCellSelection({ ...selected, stepIndex: current });
   };
 
   const commitNoteAtSelected = (fret: number) => {
@@ -307,7 +315,7 @@ export default function Home() {
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
     const result = getNextCursorPositionWithAutoAppend(updatedData, selected, inputLen, isPlaying);
     setTabData(result.nextData);
-    setSelected(result.nextSelected);
+    setSingleCellSelection(result.nextSelected);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
@@ -324,7 +332,7 @@ export default function Home() {
       isPlaying
     );
     setTabData(result.nextData);
-    setSelected(result.nextSelected);
+    setSingleCellSelection(result.nextSelected);
   };
 
   const stopPlayback = useMemo(
@@ -569,6 +577,7 @@ export default function Home() {
 
   const handleRangeMouseDown = (measureIndex: number, stepIndex: number) => {
     const anchor = { measureIndex, stepIndex };
+    didDragRangeRef.current = false;
     setDragSelectionAnchor(anchor);
     setSelectedRange(normalizeStepRange(anchor, anchor));
     setIsDraggingRange(true);
@@ -577,6 +586,12 @@ export default function Home() {
   const handleRangeMouseEnter = (measureIndex: number, stepIndex: number) => {
     if (!isDraggingRange || !dragSelectionAnchor) {
       return;
+    }
+    if (
+      dragSelectionAnchor.measureIndex !== measureIndex ||
+      dragSelectionAnchor.stepIndex !== stepIndex
+    ) {
+      didDragRangeRef.current = true;
     }
     setSelectedRange(
       normalizeStepRange(dragSelectionAnchor, {
@@ -846,6 +861,10 @@ export default function Home() {
 
   const selectedEvent = findEventAtStep(events, selected.stepIndex);
   const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+  const isDurationPreviewStep = (measureIndex: number, stepIndex: number): boolean =>
+    measureIndex === selected.measureIndex &&
+    stepIndex >= selected.stepIndex &&
+    stepIndex < Math.min(STEPS_PER_MEASURE, selected.stepIndex + inputLen);
   const measuresEvents = useMemo(
     () => tabData.measures.map((measure) => measure.events),
     [tabData.measures]
@@ -1089,11 +1108,10 @@ export default function Home() {
                       const isCurrentStep =
                         playCursor?.measureIndex === measureIndex &&
                         playCursor?.stepIndex === stepIndex;
-                      const isRangeSelected = isStepInRange(
-                        selectedRange,
-                        measureIndex,
-                        stepIndex
-                      );
+                      const isStepHighlighted =
+                        selectedRange !== null
+                          ? isStepInRange(selectedRange, measureIndex, stepIndex)
+                          : isDurationPreviewStep(measureIndex, stepIndex);
                       const isBarStart = slotIndex === 0;
                       const isBarEnd = slotIndex === displaySlots - 1;
                       const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
@@ -1103,7 +1121,7 @@ export default function Home() {
                           type="button"
                           className={`${styles.cell} ${
                             isSelected ? styles.selected : ""
-                          } ${isRangeSelected ? styles.rangeSelected : ""} ${
+                          } ${isStepHighlighted ? styles.durationPreview : ""} ${
                             isDraggingRange ? styles.dragSelecting : ""
                           } ${isCurrentStep ? styles.playing : ""} ${
                             isBarStart ? styles.barStart : ""
@@ -1116,10 +1134,14 @@ export default function Home() {
                           }}
                           onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
                           onClick={() => {
+                            if (didDragRangeRef.current) {
+                              didDragRangeRef.current = false;
+                              return;
+                            }
                             if (isBlocked) {
                               return;
                             }
-                            setSelected({ measureIndex, rowIndex, stepIndex });
+                            setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
                           }}
                         >
                           <span className={styles.cellValue}>
