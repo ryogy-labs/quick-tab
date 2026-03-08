@@ -172,6 +172,11 @@ export default function Home() {
     Math.min(tabData.measures.length - 1, selected.measureIndex)
   );
   const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
+  const selectedEvent = findEventAtStep(events, selected.stepIndex);
+  const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+  const activeInputLen = selectedEvent ? selectedEvent.len : inputLen;
+  const activeIsRestMode =
+    selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
   const totalMeasures = tabData.measures.length;
   const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
     const localMin = measure.events.reduce(
@@ -180,8 +185,9 @@ export default function Home() {
     );
     return Math.min(globalMin, localMin);
   }, 16);
-  const effectiveMinLen = Math.min(minEventLenAcrossMeasures, inputLen);
-  const displayUnit = effectiveMinLen === 1 ? 1 : 2;
+  const shouldRenderEveryStep = selectedRange !== null || activeInputLen > 1;
+  const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
+  const displayUnit = shouldRenderEveryStep || effectiveMinLen === 1 ? 1 : 2;
   const displaySlots = STEPS_PER_MEASURE / displayUnit;
   const stepWidth = TAB_MEASURE_WIDTH / displaySlots;
   const visibleSteps = useMemo(
@@ -289,10 +295,12 @@ export default function Home() {
     }
 
     if (delta > 0) {
+      const advanceAmount =
+        selectedEvent && selectedEvent.step === current ? selectedEvent.len : displayUnit;
       const result = getNextCursorPositionWithAutoAppend(
         tabData,
         { ...selected, stepIndex: current },
-        displayUnit,
+        advanceAmount,
         isPlaying
       );
       if (result.didAppendMeasure) {
@@ -316,28 +324,33 @@ export default function Home() {
 
   const commitNoteAtSelected = (fret: number) => {
     const safeFret = clampFret(fret);
-    if (!canPlaceEvent(events, selected.stepIndex, inputLen, { ignoreStep: selected.stepIndex })) {
+    if (!canPlaceEvent(events, selected.stepIndex, activeInputLen, { ignoreStep: selected.stepIndex })) {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, inputLen);
+    const nextEvents = upsertNoteAtCell(measureEvents, selected, safeFret, activeInputLen);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
-    const result = getNextCursorPositionWithAutoAppend(updatedData, selected, inputLen, isPlaying);
+    const result = getNextCursorPositionWithAutoAppend(
+      updatedData,
+      selected,
+      activeInputLen,
+      isPlaying
+    );
     setTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
-    if (!canPlaceEvent(events, stepIndex, inputLen, { ignoreStep: stepIndex })) {
+    if (!canPlaceEvent(events, stepIndex, activeInputLen, { ignoreStep: stepIndex })) {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, inputLen);
+    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, activeInputLen);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
       { ...selected, stepIndex },
-      inputLen,
+      activeInputLen,
       isPlaying
     );
     setTabData(result.nextData);
@@ -698,7 +711,7 @@ export default function Home() {
   };
 
   const handleDigitInput = (digit: string) => {
-    if (isRestMode) {
+    if (activeIsRestMode) {
       return;
     }
 
@@ -782,7 +795,7 @@ export default function Home() {
         return;
       }
 
-      if (key === "Enter" && isRestMode) {
+      if (key === "Enter" && activeIsRestMode) {
         event.preventDefault();
         placeRestAtStep(selected.stepIndex);
         return;
@@ -819,6 +832,8 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
+    activeInputLen,
+    activeIsRestMode,
     inputLen,
     isPlaying,
     isRestMode,
@@ -868,12 +883,14 @@ export default function Home() {
     }
   };
 
-  const selectedEvent = findEventAtStep(events, selected.stepIndex);
-  const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+  const durationPreviewEndStep = Math.min(STEPS_PER_MEASURE, selected.stepIndex + activeInputLen);
+  // Duration preview is a time-band highlight. It depends only on measure + step span,
+  // never on the selected string row or whether the cell already has a value.
   const isDurationPreviewStep = (measureIndex: number, stepIndex: number): boolean =>
+    selectedRange === null &&
     measureIndex === selected.measureIndex &&
     stepIndex >= selected.stepIndex &&
-    stepIndex < Math.min(STEPS_PER_MEASURE, selected.stepIndex + inputLen);
+    stepIndex < durationPreviewEndStep;
   const measuresEvents = useMemo(
     () => tabData.measures.map((measure) => measure.events),
     [tabData.measures]
@@ -947,11 +964,9 @@ export default function Home() {
       return;
     }
 
-    if (selectedFret !== null) {
-      setInputLen(selectedEvent.len);
-      setIsRestMode(false);
-    }
-  }, [selectedEvent, selectedFret]);
+    setInputLen(selectedEvent.len);
+    setIsRestMode(false);
+  }, [selectedEvent]);
 
   return (
     <div className={styles.page}>
@@ -1024,7 +1039,7 @@ export default function Home() {
                 key={item.label}
                 type="button"
                 className={`${styles.toolButton} ${
-                  !isRestMode && inputLen === item.len ? styles.toolActive : ""
+                  !activeIsRestMode && activeInputLen === item.len ? styles.toolActive : ""
                 }`.trim()}
                 onClick={() => handleSelectDuration(item.len, false)}
               >
@@ -1033,8 +1048,8 @@ export default function Home() {
             ))}
             <button
               type="button"
-              className={`${styles.toolButton} ${isRestMode ? styles.toolActive : ""}`.trim()}
-              onClick={() => handleSelectDuration(inputLen, !isRestMode)}
+              className={`${styles.toolButton} ${activeIsRestMode ? styles.toolActive : ""}`.trim()}
+              onClick={() => handleSelectDuration(activeInputLen, !activeIsRestMode)}
             >
               Rest
             </button>
@@ -1080,7 +1095,7 @@ export default function Home() {
             Import JSON
             <input type="file" accept="application/json" onChange={handleImportFile} />
           </label>
-          {isRestMode && (
+          {activeIsRestMode && (
             <button type="button" onClick={() => placeRestAtStep(selected.stepIndex)}>
               Place Rest
             </button>
@@ -1110,6 +1125,13 @@ export default function Home() {
                       const slotIndex = globalSlotIndex % displaySlots;
                       const stepIndex = visibleSteps[slotIndex] ?? 0;
                       const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
+                      const displayValue =
+                        cell?.fret !== null && cell?.fret !== undefined
+                          ? String(cell.fret)
+                          : rowIndex === 0 && cell?.isRestStart
+                            ? "R"
+                            : "";
+                      const hasDisplayValue = displayValue !== "";
                       const isSelected =
                         selected.measureIndex === measureIndex &&
                         selected.rowIndex === rowIndex &&
@@ -1153,12 +1175,12 @@ export default function Home() {
                             setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
                           }}
                         >
-                          <span className={styles.cellValue}>
-                            {cell?.fret !== null && cell?.fret !== undefined
-                              ? cell.fret
-                              : rowIndex === 0 && cell?.isRestStart
-                                ? "R"
-                                : ""}
+                          <span
+                            className={`${styles.cellValue} ${
+                              hasDisplayValue ? styles.cellValueFilled : ""
+                            }`.trim()}
+                          >
+                            {displayValue}
                           </span>
                         </button>
                       );
@@ -1175,7 +1197,7 @@ export default function Home() {
             Selected: String {selected.rowIndex + 1} / Step {selected.stepIndex + 1}
           </h2>
           <p>
-            Mode: {isRestMode ? "Rest" : `Note (${inputLen} step)`} | Current fret: {selectedFret ?? "-"}
+            Mode: {activeIsRestMode ? "Rest" : `Note (${activeInputLen} step)`} | Current fret: {selectedFret ?? "-"}
           </p>
           <p>
             Event at step: {selectedEvent ? JSON.stringify(selectedEvent) : "none"}
@@ -1201,7 +1223,7 @@ export default function Home() {
                 commitNoteAtSelected(parsed);
                 setMobileFretInput("");
               }}
-              disabled={isRestMode}
+              disabled={activeIsRestMode}
             >
               Set Note
             </button>
