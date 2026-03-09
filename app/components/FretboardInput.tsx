@@ -3,7 +3,7 @@
 import styles from "./FretboardInput.module.css";
 
 type FretboardInputProps = {
-  selectedRowIndex: number;
+  activeNotes: Array<{ string: number; fret: number }>;
   onSelectFret: (rowIndex: number, fret: number) => void;
   isPlaying: boolean;
 };
@@ -25,10 +25,12 @@ const FRETBOARD_ROWS = [
 const MARKER_FRETS = new Set([3, 5, 7, 9, 12]);
 
 export default function FretboardInput({
-  selectedRowIndex,
+  activeNotes,
   onSelectFret,
   isPlaying,
 }: FretboardInputProps) {
+  const activeNoteSet = new Set(activeNotes.map((note) => `${note.string}:${note.fret}`));
+
   return (
     <section className={styles.panel}>
       <h2 className={styles.title}>Fretboard Input</h2>
@@ -60,7 +62,7 @@ export default function FretboardInput({
               <button
                 type="button"
                 className={`${styles.openString} ${
-                  selectedRowIndex === stringRow.rowIndex ? styles.activeString : ""
+                  activeNoteSet.has(`${stringRow.rowIndex + 1}:0`) ? styles.activeNote : ""
                 }`.trim()}
                 onClick={() => onSelectFret(stringRow.rowIndex, 0)}
                 disabled={isPlaying}
@@ -73,7 +75,7 @@ export default function FretboardInput({
                   key={`fret-${stringRow.rowIndex}-${fret}`}
                   type="button"
                   className={`${styles.fretCell} ${
-                    selectedRowIndex === stringRow.rowIndex ? styles.activeString : ""
+                    activeNoteSet.has(`${stringRow.rowIndex + 1}:${fret}`) ? styles.activeNote : ""
                   }`.trim()}
                   onClick={() => onSelectFret(stringRow.rowIndex, fret)}
                   disabled={isPlaying}

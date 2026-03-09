@@ -175,6 +175,10 @@ export default function Home() {
   const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
   const selectedEvent = findEventAtStep(events, selected.stepIndex);
   const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+  const activeFretboardNotes =
+    selectedEvent && !("rest" in selectedEvent && selectedEvent.rest)
+      ? selectedEvent.notes
+      : [];
   const activeInputLen = selectedEvent ? selectedEvent.len : inputLen;
   const activeIsRestMode =
     selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
@@ -1271,7 +1275,7 @@ export default function Home() {
         </div>
 
         <FretboardInput
-          selectedRowIndex={selected.rowIndex}
+          activeNotes={activeFretboardNotes}
           onSelectFret={commitFretboardNote}
           isPlaying={isPlaying}
         />
