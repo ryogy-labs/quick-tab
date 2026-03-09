@@ -548,6 +548,38 @@ export const deleteCellOrRestAtStep = (
   return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
+export const deleteSpecificNoteAtStep = (
+  events: TabEvent[],
+  stepIndex: number,
+  stringNumber: number,
+  fret: number
+): TabEvent[] => {
+  const safeStep = clampStep(stepIndex);
+  const safeString = clampInt(stringNumber, 1, STRINGS_COUNT);
+  const safeFret = clampFret(fret);
+  const existing = findEventAtStep(events, safeStep);
+
+  if (!existing) {
+    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  }
+
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+
+  if ("rest" in existing && existing.rest) {
+    return next;
+  }
+
+  const remaining = existing.notes.filter(
+    (note) => !(note.string === safeString && note.fret === safeFret)
+  );
+  if (remaining.length === 0) {
+    return next;
+  }
+
+  next.push({ step: existing.step, len: existing.len, notes: remaining });
+  return sanitizeEvents(next, STEPS_PER_MEASURE);
+};
+
 export const moveStepByLen = (stepIndex: number, len: number): number => {
   return clampStep(stepIndex + Math.max(1, Math.trunc(len)));
 };

@@ -23,6 +23,7 @@ import {
   copyMeasure,
   createEmptyTabDataV2,
   deleteMeasure,
+  deleteSpecificNoteAtStep,
   deleteCellOrRestAtStep,
   duplicateMeasure,
   eventsToGrid,
@@ -350,6 +351,12 @@ export default function Home() {
       return;
     }
 
+    const stringNumber = rowIndex + 1;
+    const safeFret = clampFret(fret);
+    const isActiveNote = activeFretboardNotes.some(
+      (note) => note.string === stringNumber && note.fret === safeFret
+    );
+
     // TAB row mapping: rowIndex 0 => 1st string (E4), rowIndex 5 => 6th string (E2).
     const nextSelected = {
       ...selected,
@@ -360,7 +367,18 @@ export default function Home() {
     setDragSelectionAnchor(null);
     setIsDraggingRange(false);
 
-    const safeFret = clampFret(fret);
+    if (isActiveNote) {
+      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+      const nextEvents = deleteSpecificNoteAtStep(
+        measureEvents,
+        nextSelected.stepIndex,
+        stringNumber,
+        safeFret
+      );
+      setTabData((prev) => updateMeasureEvents(prev, selectedMeasureIndex, nextEvents));
+      return;
+    }
+
     if (!canPlaceEvent(events, nextSelected.stepIndex, activeInputLen, { ignoreStep: nextSelected.stepIndex })) {
       return;
     }
