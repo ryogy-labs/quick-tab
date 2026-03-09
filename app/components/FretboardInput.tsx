@@ -42,7 +42,7 @@ export default function FretboardInput({
           <div className={styles.nutSpacer}>Open</div>
           {FRET_NUMBERS.map((fret) => (
             <div key={`header-${fret}`} className={styles.fretHeader}>
-              {fret}
+              <span className={styles.fretHeaderLabel}>{fret}</span>
             </div>
           ))}
         </div>
@@ -81,7 +81,7 @@ export default function FretboardInput({
                   disabled={isPlaying}
                 >
                   <span className={styles.stringLine} />
-                  <span className={styles.hitArea}>{fret}</span>
+                  <span className={styles.hitArea} aria-hidden="true" />
                 </button>
               ))}
             </div>

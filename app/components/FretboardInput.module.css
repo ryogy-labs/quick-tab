@@ -45,6 +45,25 @@
   padding-right: 10px;
 }
 
+.nutSpacer {
+  padding-right: 14px;
+}
+
+.fretHeader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2px;
+}
+
+.fretHeaderLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  transform: translateX(1px);
+}
+
 .board {
   position: relative;
   border: 1px solid #c8dcee;
@@ -146,12 +165,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
+  width: 24px;
+  height: 24px;
   border-radius: 999px;
-  color: #16324a;
-  font-size: 12px;
-  font-weight: 700;
   background: rgb(255 255 255 / 0.2);
 }
 
