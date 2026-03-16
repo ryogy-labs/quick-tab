@@ -409,7 +409,7 @@ export default function Home() {
         stringNumber,
         safeFret
       );
-      setTabData((prev) => updateMeasureEvents(prev, selectedMeasureIndex, nextEvents));
+      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
       return;
     }
 
@@ -425,7 +425,7 @@ export default function Home() {
       activeInputLen,
       isPlaying
     );
-    setTabData(result.nextData);
+    commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
   };
 
