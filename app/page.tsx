@@ -160,6 +160,8 @@ export default function Home() {
   const [isDraggingRange, setIsDraggingRange] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
@@ -168,6 +170,8 @@ export default function Home() {
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
   const didDragRangeRef = useRef(false);
+  const undoStackRef = useRef<TabDataV2[]>([]);
+  const redoStackRef = useRef<TabDataV2[]>([]);
 
   const selectedMeasureIndex = Math.max(
     0,
@@ -262,6 +266,36 @@ export default function Home() {
     }
   };
 
+  const commitTabData = (nextData: TabDataV2) => {
+    undoStackRef.current = [...undoStackRef.current.slice(-49), tabData];
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+    setTabData(nextData);
+  };
+
+  const handleUndo = () => {
+    const stack = undoStackRef.current;
+    if (stack.length === 0) return;
+    const prev = stack[stack.length - 1];
+    undoStackRef.current = stack.slice(0, -1);
+    redoStackRef.current = [...redoStackRef.current, tabData];
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    setTabData(prev);
+  };
+
+  const handleRedo = () => {
+    const stack = redoStackRef.current;
+    if (stack.length === 0) return;
+    const next = stack[stack.length - 1];
+    redoStackRef.current = stack.slice(0, -1);
+    undoStackRef.current = [...undoStackRef.current, tabData];
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    setTabData(next);
+  };
+
   const setSingleCellSelection = (next: CellPosition) => {
     setSelected(next);
     setSelectedRange(null);
@@ -310,7 +344,7 @@ export default function Home() {
         isPlaying
       );
       if (result.didAppendMeasure) {
-        setTabData(result.nextData);
+        commitTabData(result.nextData);
       }
       setSingleCellSelection(result.nextSelected);
       return;
@@ -342,7 +376,7 @@ export default function Home() {
       activeInputLen,
       isPlaying
     );
-    setTabData(result.nextData);
+    commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
   };
 
@@ -408,7 +442,7 @@ export default function Home() {
       activeInputLen,
       isPlaying
     );
-    setTabData(result.nextData);
+    commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
   };
 
@@ -604,10 +638,10 @@ export default function Home() {
       return;
     }
     const nextMeasureIndex = totalMeasures;
-    setTabData((prev) => ({
-      ...prev,
-      measures: [...prev.measures, { events: [] }],
-    }));
+    commitTabData({
+      ...tabData,
+      measures: [...tabData.measures, { events: [] }],
+    });
     setSelected({
       measureIndex: nextMeasureIndex,
       rowIndex: 0,
@@ -620,7 +654,7 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => insertMeasure(prev, selectedMeasureIndex));
+    commitTabData(insertMeasure(tabData, selectedMeasureIndex));
     setSelected({
       measureIndex: selectedMeasureIndex,
       rowIndex: 0,
@@ -633,7 +667,7 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => duplicateMeasure(prev, selectedMeasureIndex));
+    commitTabData(duplicateMeasure(tabData, selectedMeasureIndex));
     setSelected((prev) => ({
       ...prev,
       measureIndex: Math.min(totalMeasures, selectedMeasureIndex + 1),
@@ -649,7 +683,7 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => pasteMeasure(prev, selectedMeasureIndex, measureClipboard));
+    commitTabData(pasteMeasure(tabData, selectedMeasureIndex, measureClipboard));
   };
 
   const handleRangeMouseDown = (measureIndex: number, stepIndex: number) => {
@@ -697,7 +731,7 @@ export default function Home() {
       selected.stepIndex,
       rangeClipboard
     );
-    setTabData((prev) => updateMeasureEvents(prev, selectedMeasureIndex, nextEvents));
+    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
 
   const handleDeleteMeasure = () => {
@@ -705,7 +739,7 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => deleteMeasure(prev, selectedMeasureIndex));
+    commitTabData(deleteMeasure(tabData, selectedMeasureIndex));
     setSelected((prev) => ({
       ...prev,
       measureIndex: Math.min(selectedMeasureIndex, totalMeasures - 2),
@@ -716,11 +750,9 @@ export default function Home() {
 
   const handleDelete = () => {
     clearDigitBuffer();
-    setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
-      const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
-      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
-    });
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
+    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
 
   const handleTempoCommit = (raw: string) => {
@@ -731,7 +763,7 @@ export default function Home() {
     }
 
     const nextTempo = clampTempo(parsed);
-    setTabData((prev) => ({ ...prev, tempo: nextTempo }));
+    commitTabData({ ...tabData, tempo: nextTempo });
   };
 
   const handleSelectDuration = (len: number, nextRestMode: boolean) => {
@@ -758,11 +790,9 @@ export default function Home() {
       return;
     }
 
-    setTabData((prev) => {
-      const measureEvents = getMeasureEvents(prev, selectedMeasureIndex);
-      const nextEvents = updateEventLengthAtStep(measureEvents, selected.stepIndex, len);
-      return updateMeasureEvents(prev, selectedMeasureIndex, nextEvents);
-    });
+    const measureEventsForLen = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEventsForLen = updateEventLengthAtStep(measureEventsForLen, selected.stepIndex, len);
+    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEventsForLen));
   };
 
   const handleDigitInput = (digit: string) => {
@@ -809,6 +839,22 @@ export default function Home() {
       const editableTarget = isEditableTarget(event.target);
 
       if (withCommandKey && !editableTarget) {
+        if (key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (event.shiftKey) {
+            handleRedo();
+          } else {
+            handleUndo();
+          }
+          return;
+        }
+
+        if (key.toLowerCase() === "y") {
+          event.preventDefault();
+          handleRedo();
+          return;
+        }
+
         if (key.toLowerCase() === "c") {
           event.preventDefault();
           if (selectedRange) {
@@ -889,6 +935,8 @@ export default function Home() {
   }, [
     activeInputLen,
     activeIsRestMode,
+    canRedo,
+    canUndo,
     inputLen,
     isPlaying,
     isRestMode,
@@ -1140,6 +1188,12 @@ export default function Home() {
         </div>
 
         <div className={styles.controls}>
+          <button type="button" onClick={handleUndo} disabled={!canUndo}>
+            Undo
+          </button>
+          <button type="button" onClick={handleRedo} disabled={!canRedo}>
+            Redo
+          </button>
           <button type="button" onClick={handlePlay}>
             {isPlaying ? "Stop" : "Play"}
           </button>
