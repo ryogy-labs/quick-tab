@@ -38,7 +38,7 @@ type DurationToken = "w" | "h" | "q" | "8" | "16";
 type SupportedLen = 1 | 2 | 4 | 8 | 16;
 
 const STAFF_LINE_GAP = 12;
-const STAFF_TOP = 52;
+const STAFF_TOP = 76;
 const STAFF_LINES = 5;
 const NOTE_RADIUS_X = 6;
 const NOTE_RADIUS_Y = 4.4;
@@ -234,7 +234,7 @@ export default function StaffPreview({
   const measureCount = Math.max(1, measuresEvents.length);
   const measureWidth = stepWidth * displaySlots;
   const width = labelWidth + measureWidth * measureCount;
-  const height = 150;
+  const height = 175;
 
   const renderEvents = useMemo(
     () => buildRenderEvents(measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth),
@@ -297,7 +297,7 @@ export default function StaffPreview({
         })}
 
         {showClef && (
-          <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 4} fontSize={52} textAnchor="middle" fill="#111">
+          <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 8} fontSize={72} textAnchor="middle" fill="#111">
             𝄞
           </text>
         )}
