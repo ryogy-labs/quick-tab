@@ -231,6 +231,7 @@
   color: #12263b;
   font-weight: 700;
   font-size: 0;
+  touch-action: none;
 }
 
 .cell::before {
