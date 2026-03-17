@@ -23,6 +23,12 @@
   gap: 8px;
 }
 
+.fretboardScroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .fretNumbers,
 .markersLayer,
 .stringRow {
@@ -109,8 +115,9 @@
   background: transparent;
   cursor: pointer;
   position: relative;
-  min-height: 42px;
+  min-height: 48px;
   padding: 0;
+  touch-action: manipulation;
 }
 
 .openString:disabled,
@@ -165,8 +172,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: rgb(255 255 255 / 0.2);
 }
@@ -177,9 +184,25 @@
 }
 
 @media (max-width: 768px) {
+  .fretboardScroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .fretNumbers,
   .markersLayer,
   .stringRow {
-    grid-template-columns: 88px repeat(12, minmax(34px, 1fr));
+    grid-template-columns: 80px repeat(12, 52px);
+    min-width: max-content;
+  }
+
+  .hitArea {
+    width: 40px;
+    height: 40px;
+  }
+
+  .openString,
+  .fretCell {
+    min-height: 52px;
   }
 }

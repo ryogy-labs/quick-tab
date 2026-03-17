@@ -38,6 +38,7 @@ export default function FretboardInput({
         Click a string and fret to write into the current TAB step. Playback disables fretboard input.
       </p>
       <div className={styles.fretboard}>
+        <div className={styles.fretboardScroll}>
         <div className={styles.fretNumbers}>
           <div className={styles.nutSpacer}>Open</div>
           {FRET_NUMBERS.map((fret) => (
@@ -86,6 +87,7 @@ export default function FretboardInput({
               ))}
             </div>
           ))}
+        </div>
         </div>
       </div>
     </section>
