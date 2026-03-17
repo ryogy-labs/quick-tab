@@ -170,6 +170,7 @@ export default function Home() {
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
   const didDragRangeRef = useRef(false);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   const undoStackRef = useRef<TabDataV2[]>([]);
   const redoStackRef = useRef<TabDataV2[]>([]);
 
@@ -499,13 +500,44 @@ export default function Home() {
       return;
     }
 
-    const handleMouseUp = () => {
+    const handleDragEnd = () => {
       setIsDraggingRange(false);
       setDragSelectionAnchor(null);
     };
 
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => window.removeEventListener("mouseup", handleMouseUp);
+    window.addEventListener("mouseup", handleDragEnd);
+    window.addEventListener("touchend", handleDragEnd);
+    return () => {
+      window.removeEventListener("mouseup", handleDragEnd);
+      window.removeEventListener("touchend", handleDragEnd);
+    };
+  }, [isDraggingRange]);
+
+  const handleRangeMouseEnterRef = useRef<(measureIndex: number, stepIndex: number) => void>(() => undefined);
+
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || !isDraggingRange) {
+      return;
+    }
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+      const cell = el?.closest("[data-measure-index]") as HTMLElement | null;
+      if (!cell) {
+        return;
+      }
+      const mi = cell.getAttribute("data-measure-index");
+      const si = cell.getAttribute("data-step-index");
+      if (mi !== null && si !== null) {
+        handleRangeMouseEnterRef.current(Number(mi), Number(si));
+      }
+    };
+
+    grid.addEventListener("touchmove", handleTouchMove, { passive: false });
+    return () => grid.removeEventListener("touchmove", handleTouchMove);
   }, [isDraggingRange]);
 
   useEffect(() => {
@@ -711,6 +743,7 @@ export default function Home() {
       })
     );
   };
+  handleRangeMouseEnterRef.current = handleRangeMouseEnter;
 
   const handleCopyRange = () => {
     if (!selectedRange) {
@@ -1223,7 +1256,7 @@ export default function Home() {
                 stepWidth={stepWidth}
                 stepUnit={displayUnit}
               />
-              <div className={styles.grid}>
+              <div className={styles.grid} ref={gridRef}>
                 {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
                   <div key={`row-${rowIndex}`} className={styles.row}>
                     <div className={styles.stringLabel}>
@@ -1259,6 +1292,8 @@ export default function Home() {
                         <button
                           key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
                           type="button"
+                          data-measure-index={measureIndex}
+                          data-step-index={stepIndex}
                           className={`${styles.cell} ${
                             isSelected ? styles.selected : ""
                           } ${isStepHighlighted ? styles.durationPreview : ""} ${
@@ -1273,6 +1308,10 @@ export default function Home() {
                             handleRangeMouseDown(measureIndex, stepIndex);
                           }}
                           onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
+                          onTouchStart={(event) => {
+                            event.preventDefault();
+                            handleRangeMouseDown(measureIndex, stepIndex);
+                          }}
                           onClick={() => {
                             if (didDragRangeRef.current) {
                               didDragRangeRef.current = false;
