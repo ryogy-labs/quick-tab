@@ -4,6 +4,7 @@ import { ChangeEvent, CSSProperties, useEffect, useMemo, useRef, useState } from
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
+import MobileNumpad from "./components/MobileNumpad";
 import {
   CellPosition,
   DURATION_OPTIONS,
@@ -153,6 +154,7 @@ export default function Home() {
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [mobileFretInput, setMobileFretInput] = useState<string>("");
+  const [numpadBuffer, setNumpadBuffer] = useState<string>("");
   const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
   const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
@@ -261,6 +263,7 @@ export default function Home() {
 
   const clearDigitBuffer = () => {
     digitBufferRef.current = "";
+    setNumpadBuffer("");
     if (digitTimerRef.current !== null) {
       window.clearTimeout(digitTimerRef.current);
       digitTimerRef.current = null;
@@ -841,6 +844,8 @@ export default function Home() {
       digitBufferRef.current = digit;
     }
 
+    setNumpadBuffer(digitBufferRef.current);
+
     if (digitTimerRef.current !== null) {
       window.clearTimeout(digitTimerRef.current);
       digitTimerRef.current = null;
@@ -852,6 +857,7 @@ export default function Home() {
       }
       const fret = Number(digitBufferRef.current);
       clearDigitBuffer();
+      setNumpadBuffer("");
       if (!Number.isNaN(fret)) {
         commitNoteAtSelected(fret);
       }
@@ -1383,6 +1389,14 @@ export default function Home() {
             Keyboard: digits for fret (supports 2 digits), Backspace/Delete to clear, Arrow/WASD to move,
             Enter to place rest in Rest mode.
           </p>
+          <MobileNumpad
+            buffer={numpadBuffer}
+            onDigit={handleDigitInput}
+            onBackspace={handleDelete}
+            onRest={() => placeRestAtStep(selected.stepIndex)}
+            isRestMode={activeIsRestMode}
+            disabled={isPlaying}
+          />
         </div>
 
         <FretboardInput
