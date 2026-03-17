@@ -189,10 +189,16 @@
     -webkit-overflow-scrolling: touch;
   }
 
+  /* overflow:hiddenがスクロール時に指板を切るのを防ぐ。
+     widthをmax-contentに伸ばすことでclipが起きなくなる */
+  .board {
+    min-width: max-content;
+  }
+
   .fretNumbers,
   .markersLayer,
   .stringRow {
-    grid-template-columns: 80px repeat(12, 52px);
+    grid-template-columns: 80px repeat(12, 78px);
     min-width: max-content;
   }
 

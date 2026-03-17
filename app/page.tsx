@@ -1350,13 +1350,6 @@ export default function Home() {
           <h2>
             Selected: String {selected.rowIndex + 1} / Step {selected.stepIndex + 1}
           </h2>
-          <p>
-            Mode: {activeIsRestMode ? "Rest" : `Note (${activeInputLen} step)`} | Current fret: {selectedFret ?? "-"}
-          </p>
-          <p>
-            Event at step: {selectedEvent ? JSON.stringify(selectedEvent) : "none"}
-          </p>
-
           <div className={styles.editRow}>
             <input
               type="number"
@@ -1385,10 +1378,6 @@ export default function Home() {
               Delete
             </button>
           </div>
-          <p>
-            Keyboard: digits for fret (supports 2 digits), Backspace/Delete to clear, Arrow/WASD to move,
-            Enter to place rest in Rest mode.
-          </p>
           <MobileNumpad
             buffer={numpadBuffer}
             onDigit={handleDigitInput}
