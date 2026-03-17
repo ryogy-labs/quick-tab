@@ -359,23 +359,49 @@
 
 @media (max-width: 768px) {
   .page {
-    padding: 14px;
+    padding: 10px;
   }
 
   .headerRow h1 {
-    font-size: 24px;
+    font-size: 20px;
   }
 
+  /* measureNav: ボタンを小さくして折り返しを最小化 */
+  .measureNav {
+    gap: 6px;
+  }
+
+  .measureNav button {
+    padding: 5px 8px;
+    font-size: 12px;
+  }
+
+  /* toolbar: Duration と Tempo を縦積み */
+  .toolbar {
+    gap: 8px;
+  }
+
+  .durationCard {
+    flex: 1 1 100%;
+  }
+
+  .tempoCard {
+    flex: 1 1 100%;
+    min-width: unset;
+  }
+
+  /* controls: Undo/Redo/Play などのボタン */
   .controls button,
-  .importLabel,
+  .importLabel {
+    font-size: 13px;
+    padding: 7px 10px;
+  }
+
+  /* Duration選択ボタン */
   .toolButton {
     font-size: 13px;
-    padding: 8px 10px;
-  }
-
-  .durationCard,
-  .tempoCard {
-    width: 100%;
+    padding: 7px 10px;
+    touch-action: manipulation;
   }
 
   .cellValue {
@@ -384,6 +410,7 @@
 
   .tempoControl {
     width: 100%;
+    justify-content: space-between;
   }
 
   .editRow input {
