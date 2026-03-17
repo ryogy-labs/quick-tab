@@ -297,7 +297,7 @@ export default function StaffPreview({
         })}
 
         {showClef && (
-          <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 16} fontSize={120} textAnchor="middle" fill="#111">
+          <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 10} fontSize={120} textAnchor="middle" fill="#111">
             𝄞
           </text>
         )}
