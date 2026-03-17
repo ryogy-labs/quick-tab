@@ -38,7 +38,7 @@ type DurationToken = "w" | "h" | "q" | "8" | "16";
 type SupportedLen = 1 | 2 | 4 | 8 | 16;
 
 const STAFF_LINE_GAP = 12;
-const STAFF_TOP = 26;
+const STAFF_TOP = 52;
 const STAFF_LINES = 5;
 const NOTE_RADIUS_X = 6;
 const NOTE_RADIUS_Y = 4.4;
@@ -234,7 +234,7 @@ export default function StaffPreview({
   const measureCount = Math.max(1, measuresEvents.length);
   const measureWidth = stepWidth * displaySlots;
   const width = labelWidth + measureWidth * measureCount;
-  const height = 140;
+  const height = 150;
 
   const renderEvents = useMemo(
     () => buildRenderEvents(measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth),
@@ -251,7 +251,7 @@ export default function StaffPreview({
 
   return (
     <section className={styles.staffBlock}>
-      <svg className={styles.canvas} width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
+      <svg className={styles.canvas} width={width} height={height} viewBox={`0 0 ${width} ${height}`} overflow="visible">
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
 
         {activeSlot !== null &&
@@ -297,7 +297,7 @@ export default function StaffPreview({
         })}
 
         {showClef && (
-          <text x={labelWidth * 0.45} y={STAFF_TOP + 28} fontSize={44} textAnchor="middle" fill="#111">
+          <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 4} fontSize={52} textAnchor="middle" fill="#111">
             𝄞
           </text>
         )}
