@@ -273,7 +273,7 @@ export default function StaffPreview({
   const measureCount = Math.max(1, measuresEvents.length);
   const measureWidth = stepWidth * displaySlots;
   const width = labelWidth + measureWidth * measureCount;
-  const height = 175;
+  const viewBoxHeight = 175;
 
   const renderEvents = useMemo(
     () => buildRenderEvents(measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth),
@@ -290,8 +290,8 @@ export default function StaffPreview({
 
   return (
     <section className={styles.staffBlock}>
-      <svg className={styles.canvas} width={width} height={height} viewBox={`0 0 ${width} ${height}`} overflow="visible">
-        <rect x={0} y={0} width={width} height={height} fill="transparent" />
+      <svg className={styles.canvas} width="100%" viewBox={`0 0 ${width} ${viewBoxHeight}`} preserveAspectRatio="xMinYMin meet">
+        <rect x={0} y={0} width={width} height={viewBoxHeight} fill="transparent" />
 
         {activeSlot !== null &&
           activeSlot.slotIndex >= 0 &&
@@ -300,7 +300,7 @@ export default function StaffPreview({
             x={labelWidth + measureWidth * activeSlot.measureIndex + stepWidth * activeSlot.slotIndex}
             y={10}
             width={stepWidth}
-            height={height - 20}
+            height={viewBoxHeight - 20}
             fill="#fff0c688"
           />
         )}

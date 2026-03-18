@@ -9,11 +9,7 @@
 
 @media (max-width: 768px) {
   .staffBlock {
-    padding-top: 2px;
-    padding-bottom: 4px;
-  }
-
-  .canvas {
-    height: 105px;
+    padding-top: 0;
+    padding-bottom: 0;
   }
 }
