@@ -430,6 +430,20 @@ export const isStepBlockedForNewStart = (
   );
 };
 
+/** If stepIndex falls inside an existing event (but isn't its start),
+ *  return that event's start step. Otherwise return stepIndex unchanged. */
+export const findOwningEventStep = (
+  events: TabEvent[],
+  stepIndex: number,
+  stepsPerMeasure = STEPS_PER_MEASURE
+): number => {
+  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
+  const owning = sanitizeEvents(events, stepsPerMeasure).find(
+    (event) => safeStep > event.step && safeStep < event.step + event.len
+  );
+  return owning ? owning.step : safeStep;
+};
+
 export const eventsToGrid = (events: TabEvent[]): GridCell[][] => {
   const grid: GridCell[][] = Array.from({ length: STRINGS_COUNT }, () =>
     Array.from({ length: STEPS_PER_MEASURE }, () => ({

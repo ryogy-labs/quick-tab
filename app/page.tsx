@@ -33,6 +33,7 @@ import {
   eventsToGrid,
   extractRangeClipboardFromMeasure,
   findEventAtStep,
+  findOwningEventStep,
   getCellFret,
   getPlaybackDuration,
   insertMeasure,
@@ -464,11 +465,7 @@ export default function Home() {
   ) => {
     if (isPlaying) return;
 
-    const stringNumber = rowIndex + 1;
     const safeFret = clampFret(fret);
-    const isActiveNote = activeFretboardNotes.some(
-      (note) => note.string === stringNumber && note.fret === safeFret
-    );
 
     const nextSelected = {
       ...selected,
@@ -479,19 +476,7 @@ export default function Home() {
     setDragSelectionAnchor(null);
     setIsDraggingRange(false);
 
-    // Toggle off: if the same note already exists, delete it
-    if (isActiveNote) {
-      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-      const nextEvents = deleteSpecificNoteAtStep(
-        measureEvents,
-        nextSelected.stepIndex,
-        stringNumber,
-        safeFret
-      );
-      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
-      return;
-    }
-
+    // Always overwrite (no toggle) — flick is an intentional placement gesture
     if (!canPlaceEvent(events, nextSelected.stepIndex, len, { ignoreStep: nextSelected.stepIndex })) {
       return;
     }
@@ -895,6 +880,16 @@ export default function Home() {
 
   const handleDelete = () => {
     clearDigitBuffer();
+    if (selectedRange) {
+      // Delete all events within the range selection
+      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+      const nextEvents = measureEvents.filter(
+        (event) => event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
+      );
+      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
+      setSelectedRange(null);
+      return;
+    }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
@@ -1041,6 +1036,12 @@ export default function Home() {
       if (key === "Backspace" || key === "Delete") {
         event.preventDefault();
         handleDelete();
+        return;
+      }
+
+      if (key === " ") {
+        event.preventDefault();
+        handlePlay();
         return;
       }
 
@@ -1196,13 +1197,21 @@ export default function Home() {
 
   useEffect(() => {
     setSelected((prev) => {
+      // If cursor is on a blocked step (inside an event's duration),
+      // snap to that event's start step so the full range is highlighted
+      if (blockedStepSet.has(prev.stepIndex)) {
+        const owningStep = findOwningEventStep(events, prev.stepIndex);
+        if (owningStep !== prev.stepIndex) {
+          return { ...prev, stepIndex: owningStep };
+        }
+      }
       const nextStep = getNearestSelectableStep(prev.stepIndex);
       if (nextStep === prev.stepIndex) {
         return prev;
       }
       return { ...prev, stepIndex: nextStep };
     });
-  }, [displayUnit, blockedStepSet]);
+  }, [displayUnit, blockedStepSet, events]);
 
   useEffect(() => {
     if (!selectedEvent) {
@@ -1433,6 +1442,9 @@ export default function Home() {
                               return;
                             }
                             if (isBlocked) {
+                              // Snap to the owning event's start step
+                              const owningStep = findOwningEventStep(events, stepIndex);
+                              setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
                               return;
                             }
                             setSingleCellSelection({ measureIndex, rowIndex, stepIndex });

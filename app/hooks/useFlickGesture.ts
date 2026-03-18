@@ -107,9 +107,11 @@ export function useFlickGesture({ threshold, onCommit, disabled }: UseFlickGestu
       const verticalLevel = clamp(Math.round(deltaY / threshold), -2, 2);
 
       // X: evaluated independently for L-shaped gestures
+      // Use a smaller threshold for horizontal (60%) so it feels equally responsive
+      const hThreshold = threshold * 0.6;
       let horizontalLevel = 0;
-      if (deltaX >= threshold) horizontalLevel = 1;       // right = dotted
-      else if (deltaX <= -threshold) horizontalLevel = -1; // left = triplet
+      if (deltaX >= hThreshold) horizontalLevel = 1;       // right = dotted
+      else if (deltaX <= -hThreshold) horizontalLevel = -1; // left = triplet
 
       // Only update state if levels actually changed
       if (
