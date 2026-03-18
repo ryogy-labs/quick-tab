@@ -1426,6 +1426,9 @@ export default function Home() {
                               return;
                             }
                             if (isBlocked) {
+                              // Snap to the owning event's start step
+                              const owningStep = findOwningEventStep(events, stepIndex);
+                              setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
                               return;
                             }
                             setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
