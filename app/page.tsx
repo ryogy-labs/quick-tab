@@ -880,6 +880,16 @@ export default function Home() {
 
   const handleDelete = () => {
     clearDigitBuffer();
+    if (selectedRange) {
+      // Delete all events within the range selection
+      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+      const nextEvents = measureEvents.filter(
+        (event) => event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
+      );
+      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
+      setSelectedRange(null);
+      return;
+    }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
@@ -1026,6 +1036,12 @@ export default function Home() {
       if (key === "Backspace" || key === "Delete") {
         event.preventDefault();
         handleDelete();
+        return;
+      }
+
+      if (key === " ") {
+        event.preventDefault();
+        handlePlay();
         return;
       }
 
