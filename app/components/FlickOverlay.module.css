@@ -4,17 +4,16 @@
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0px;
   transform: translateX(-50%);
 }
 
-/* Each row: [3連] [音価] [付点] */
+/* Each row: [3連] [音価] [付点] — height set via inline style to match threshold */
 .row {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  height: 28px;
 }
 
 /* Center: base duration label */

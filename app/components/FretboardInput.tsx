@@ -160,6 +160,7 @@ export default function FretboardInput({
         anchorRect={flickAnchorRect}
         verticalLevel={flickState.verticalLevel}
         horizontalLevel={flickState.horizontalLevel}
+        threshold={threshold}
       />
     </section>
   );

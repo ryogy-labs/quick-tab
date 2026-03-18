@@ -70,6 +70,7 @@ export default function RestFlickButton({
         anchorRect={anchorRect}
         verticalLevel={flickState.verticalLevel}
         horizontalLevel={flickState.horizontalLevel}
+        threshold={threshold}
       />
     </>
   );
