@@ -39,8 +39,8 @@ export default function FlickOverlay({
 
   // Each row height matches the threshold so the visual aligns with the detection area
   const rowHeight = threshold;
-  // Horizontal detection uses 60% of threshold in useFlickGesture
-  const hWidth = Math.round(threshold * 0.6);
+  // Modifier display width matches vertical row height (threshold) for visual consistency
+  const hWidth = threshold;
   const centerIndex = 2; // index of level 0 (quarter note) in the array
   const centerItemOffset = centerIndex * rowHeight + rowHeight / 2;
 
