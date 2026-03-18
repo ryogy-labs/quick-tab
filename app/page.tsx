@@ -33,6 +33,7 @@ import {
   eventsToGrid,
   extractRangeClipboardFromMeasure,
   findEventAtStep,
+  findOwningEventStep,
   getCellFret,
   getPlaybackDuration,
   insertMeasure,
@@ -1180,13 +1181,21 @@ export default function Home() {
 
   useEffect(() => {
     setSelected((prev) => {
+      // If cursor is on a blocked step (inside an event's duration),
+      // snap to that event's start step so the full range is highlighted
+      if (blockedStepSet.has(prev.stepIndex)) {
+        const owningStep = findOwningEventStep(events, prev.stepIndex);
+        if (owningStep !== prev.stepIndex) {
+          return { ...prev, stepIndex: owningStep };
+        }
+      }
       const nextStep = getNearestSelectableStep(prev.stepIndex);
       if (nextStep === prev.stepIndex) {
         return prev;
       }
       return { ...prev, stepIndex: nextStep };
     });
-  }, [displayUnit, blockedStepSet]);
+  }, [displayUnit, blockedStepSet, events]);
 
   useEffect(() => {
     if (!selectedEvent) {
