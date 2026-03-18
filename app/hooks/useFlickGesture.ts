@@ -54,11 +54,17 @@ export function useFlickGesture({ threshold, onCommit, disabled }: UseFlickGestu
   // Store the latest result in a ref so pointerup can read it synchronously
   const latestResultRef = useRef<FlickResult>(DEFAULT_RESULT);
 
+  // Optional anchor center override — when set, flick deltas are measured from
+  // this point rather than the raw touch position. This keeps the detection area
+  // aligned with the visual overlay which is centred on the cell.
+  const anchorRef = useRef<{ x: number; y: number } | null>(null);
+
   const reset = useCallback(() => {
     activeRef.current = false;
     pointerIdRef.current = null;
     prevLevelRef.current = { v: 0, h: 0 };
     latestResultRef.current = DEFAULT_RESULT;
+    anchorRef.current = null;
     setState(DEFAULT_STATE);
   }, []);
 
@@ -92,8 +98,10 @@ export function useFlickGesture({ threshold, onCommit, disabled }: UseFlickGestu
       if (!activeRef.current || e.pointerId !== pointerIdRef.current) return;
       e.preventDefault();
 
-      const deltaX = e.clientX - startXRef.current;
-      const deltaY = e.clientY - startYRef.current;
+      // Use anchor center (cell center) if available, otherwise fall back to raw touch start
+      const origin = anchorRef.current ?? { x: startXRef.current, y: startYRef.current };
+      const deltaX = e.clientX - origin.x;
+      const deltaY = e.clientY - origin.y;
 
       // Y: positive = down (longer notes), negative = up (shorter notes)
       const verticalLevel = clamp(Math.round(deltaY / threshold), -2, 2);
@@ -144,6 +152,7 @@ export function useFlickGesture({ threshold, onCommit, disabled }: UseFlickGestu
 
   return {
     state,
+    anchorRef,
     handlers: {
       onPointerDown,
       onPointerMove,
