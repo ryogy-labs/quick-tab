@@ -401,6 +401,9 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+
+    const placed = findEventAtStep(nextEvents, selected.stepIndex);
+    if (placed) void playEvent(placed, tabData.tempo);
   };
 
   const commitFretboardNote = (rowIndex: number, fret: number) => {
@@ -450,6 +453,9 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+
+    const placed = findEventAtStep(nextEvents, nextSelected.stepIndex);
+    if (placed) void playEvent(placed, tabData.tempo);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
@@ -517,6 +523,9 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+
+    const placed = findEventAtStep(modifiedEvents, nextSelected.stepIndex);
+    if (placed) void playEvent(placed, tabData.tempo);
 
     // Sync toolbar duration display
     setInputLen(len);
