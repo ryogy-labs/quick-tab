@@ -137,20 +137,55 @@ const normalizeLenForDuration = (len: number): SupportedLen => {
   return snapped;
 };
 
-const restLabel = (duration: DurationToken): string => {
-  switch (duration) {
-    case "w":
-      return "Rw";
-    case "h":
-      return "Rh";
-    case "q":
-      return "Rq";
-    case "8":
-      return "R8";
-    case "16":
-    default:
-      return "R16";
-  }
+// SVG rest symbol renderers (draw directly in SVG since Unicode musical symbols lack font support)
+const RestWhole = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+  // Filled rectangle hanging below line 4
+  const lineY = STAFF_TOP + STAFF_LINE_GAP; // 2nd line from top
+  return <rect x={x - 6} y={lineY} width={12} height={STAFF_LINE_GAP / 2} fill={fill} />;
+};
+
+const RestHalf = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+  // Filled rectangle sitting on line 3
+  const lineY = STAFF_TOP + STAFF_LINE_GAP * 2; // middle line
+  return <rect x={x - 6} y={lineY - STAFF_LINE_GAP / 2} width={12} height={STAFF_LINE_GAP / 2} fill={fill} />;
+};
+
+const RestQuarter = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+  // Classic quarter rest zig-zag shape
+  const top = STAFF_TOP + STAFF_LINE_GAP * 0.5;
+  return (
+    <path
+      d={`M ${x + 3} ${top} L ${x - 4} ${top + 8} L ${x + 4} ${top + 16} Q ${x - 5} ${top + 22} ${x - 3} ${top + 28} Q ${x + 1} ${top + 24} ${x + 4} ${top + 26} Q ${x - 2} ${top + 32} ${x - 3} ${top + 36}`}
+      fill="none"
+      stroke={fill}
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  );
+};
+
+const RestEighth = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+  // Eighth rest: dot + diagonal line
+  const centerY = STAFF_CENTER_Y;
+  return (
+    <g>
+      <circle cx={x + 2} cy={centerY - 6} r={2.5} fill={fill} />
+      <line x1={x + 2} y1={centerY - 4} x2={x - 3} y2={centerY + 12} stroke={fill} strokeWidth={1.8} strokeLinecap="round" />
+    </g>
+  );
+};
+
+const RestSixteenth = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+  // Sixteenth rest: two dots + diagonal line
+  const centerY = STAFF_CENTER_Y;
+  return (
+    <g>
+      <circle cx={x + 2} cy={centerY - 10} r={2.5} fill={fill} />
+      <circle cx={x + 4} cy={centerY - 2} r={2.5} fill={fill} />
+      <line x1={x + 4} y1={centerY} x2={x - 3} y2={centerY + 14} stroke={fill} strokeWidth={1.8} strokeLinecap="round" />
+    </g>
+  );
 };
 
 const buildRenderEvents = (
@@ -318,22 +353,21 @@ export default function StaffPreview({
               currentCursor !== null &&
               currentCursor.measureIndex === event.measureIndex &&
               currentCursor.stepIndex === event.step;
+            const fill = isActive ? "#b34700" : "#111";
+            const RestComponent =
+              duration === "w" ? RestWhole
+              : duration === "h" ? RestHalf
+              : duration === "q" ? RestQuarter
+              : duration === "8" ? RestEighth
+              : RestSixteenth;
             return (
-              <g key={`rest-${event.step}`}>
-                <text
-                  x={rest.x}
-                  y={rest.y + 6}
-                  fontSize={14}
-                  textAnchor="middle"
-                  fill={isActive ? "#b34700" : "#111"}
-                >
-                  {restLabel(duration)}
-                </text>
+              <g key={`rest-${event.measureIndex}-${event.step}`}>
+                <RestComponent x={rest.x} y={rest.y} fill={fill} />
                 {event.dot && (
-                  <circle cx={rest.x + 14} cy={rest.y + 2} r={2} fill={isActive ? "#b34700" : "#111"} />
+                  <circle cx={rest.x + 10} cy={STAFF_CENTER_Y} r={2} fill={fill} />
                 )}
                 {event.triplet && (
-                  <text x={rest.x} y={rest.y - 10} fontSize={10} fontWeight={700} textAnchor="middle" fill={isActive ? "#b34700" : "#111"}>
+                  <text x={rest.x} y={STAFF_TOP - 6} fontSize={10} fontWeight={700} textAnchor="middle" fill={fill}>
                     3
                   </text>
                 )}

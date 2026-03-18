@@ -681,9 +681,11 @@ export default function Home() {
       osc.type = "triangle";
       osc.frequency.value = frequency;
 
+      const fadeOut = Math.min(0.05, durationSec * 0.1);
       gain.gain.setValueAtTime(0.0001, now);
       gain.gain.exponentialRampToValueAtTime(0.16, now + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + Math.max(0.03, durationSec * 0.95));
+      gain.gain.setValueAtTime(0.16, now + Math.max(0.02, durationSec - fadeOut));
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec);
 
       osc.connect(gain);
       gain.connect(context.destination);
@@ -698,7 +700,9 @@ export default function Home() {
       return;
     }
 
-    const startMeasureIndex = selectedMeasureIndex;
+    // If the cursor is at the last measure, restart from the beginning
+    const isAtEnd = selectedMeasureIndex >= tabData.measures.length - 1;
+    const startMeasureIndex = isAtEnd ? 0 : selectedMeasureIndex;
     let linearIndex = startMeasureIndex * STEPS_PER_MEASURE;
     const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
     const tempo = tabData.tempo;
@@ -1394,9 +1398,7 @@ export default function Home() {
                       const displayValue =
                         cell?.fret !== null && cell?.fret !== undefined
                           ? String(cell.fret)
-                          : rowIndex === 0 && cell?.isRestStart
-                            ? "R"
-                            : "";
+                          : "";
                       const hasDisplayValue = displayValue !== "";
                       const isSelected =
                         selected.measureIndex === measureIndex &&
