@@ -5,6 +5,7 @@ import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
 import MobileNumpad from "./components/MobileNumpad";
+import CollapsibleSection from "./components/CollapsibleSection";
 import RestFlickButton from "./components/RestFlickButton";
 import {
   CellPosition,
@@ -1486,6 +1487,27 @@ export default function Home() {
               Delete
             </button>
           </div>
+        </div>
+
+        <CollapsibleSection title="Fretboard Input" defaultOpen={true}>
+          <FretboardInput
+            activeNotes={activeFretboardNotes}
+            onFlickCommit={commitFretboardFlick}
+            isPlaying={isPlaying}
+          />
+          <div className={styles.restFlickRow}>
+            <RestFlickButton
+              onFlickCommit={placeRestWithFlick}
+              disabled={isPlaying}
+            />
+            <span className={styles.restFlickHint}>
+              R: Tap for quarter rest, flick for other durations
+            </span>
+          </div>
+        </CollapsibleSection>
+
+        <div className={styles.mobileOnly}>
+        <CollapsibleSection title="Numpad" defaultOpen={false}>
           <MobileNumpad
             buffer={numpadBuffer}
             onDigit={handleDigitInput}
@@ -1494,22 +1516,7 @@ export default function Home() {
             isRestMode={activeIsRestMode}
             disabled={isPlaying}
           />
-        </div>
-
-        <FretboardInput
-          activeNotes={activeFretboardNotes}
-          onFlickCommit={commitFretboardFlick}
-          isPlaying={isPlaying}
-        />
-
-        <div className={styles.restFlickRow}>
-          <RestFlickButton
-            onFlickCommit={placeRestWithFlick}
-            disabled={isPlaying}
-          />
-          <span className={styles.restFlickHint}>
-            R: Tap for quarter rest, flick for other durations
-          </span>
+        </CollapsibleSection>
         </div>
       </main>
     </div>

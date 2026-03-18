@@ -1,14 +1,6 @@
-.panel {
-  border: 1px solid #a6bed7;
-  background: #ffffffcc;
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.title {
-  font-size: 16px;
-  margin: 0 0 6px;
-  color: #1e3f5e;
+.fretboardWrapper {
+  display: flex;
+  flex-direction: column;
 }
 
 .description {

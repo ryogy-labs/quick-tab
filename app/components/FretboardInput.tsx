@@ -82,8 +82,7 @@ export default function FretboardInput({
   );
 
   return (
-    <section className={styles.panel}>
-      <h2 className={styles.title}>Fretboard Input</h2>
+    <div className={styles.fretboardWrapper}>
       <p className={styles.description}>
         Tap to place a quarter note. Flick up/down to change duration, left/right for triplet/dotted.
       </p>
@@ -162,6 +161,6 @@ export default function FretboardInput({
         horizontalLevel={flickState.horizontalLevel}
         threshold={threshold}
       />
-    </section>
+    </div>
   );
 }

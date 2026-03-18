@@ -1,0 +1,43 @@
+.section {
+  border: 1px solid #a6bed7;
+  background: #ffffffcc;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.header:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e3f5e;
+}
+
+.chevron {
+  font-size: 12px;
+  color: #5a7a96;
+  transition: transform 0.2s;
+  transform: rotate(-90deg);
+}
+
+.chevron.open {
+  transform: rotate(0deg);
+}
+
+.content {
+  padding: 0 12px 12px;
+}
