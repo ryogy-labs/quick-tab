@@ -196,17 +196,44 @@
   .fretNumbers,
   .markersLayer,
   .stringRow {
-    grid-template-columns: 80px repeat(12, 78px);
+    grid-template-columns: 40px repeat(12, 55px);
     min-width: max-content;
   }
 
   .hitArea {
-    width: 40px;
-    height: 40px;
+    width: 32px;
+    height: 32px;
   }
 
   .openString,
   .fretCell {
-    min-height: 52px;
+    min-height: 36px;
+  }
+
+  .openString {
+    padding-right: 4px;
+  }
+
+  .stringName {
+    font-size: 10px;
+    padding: 2px 4px;
+  }
+
+  .fretNumbers {
+    font-size: 10px;
+  }
+
+  .board {
+    border-radius: 8px;
+    padding: 6px 0 5px;
+  }
+
+  .markersLayer {
+    inset: 6px 0 5px 0;
+  }
+
+  .markerDot {
+    width: 6px;
+    height: 6px;
   }
 }
