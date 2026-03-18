@@ -26,7 +26,7 @@ const FRETBOARD_ROWS = [
 const MARKER_FRETS = new Set([3, 5, 7, 9, 12]);
 
 const DESKTOP_THRESHOLD = 42;
-const MOBILE_THRESHOLD = 78;
+const MOBILE_THRESHOLD = 55;
 
 export default function FretboardInput({
   activeNotes,
