@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
@@ -52,8 +52,9 @@ import {
 
 const STORAGE_KEY = "quick-tab:mvp:v2";
 const TAB_LABEL_WIDTH = 92;
+const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
-const TAB_MEASURE_WIDTH = TAB_SLOT_WIDTH * STEPS_PER_MEASURE;
+const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
 
 type PlayCursor = {
@@ -170,6 +171,19 @@ export default function Home() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const tabLabelWidth = isMobile ? TAB_LABEL_WIDTH_MOBILE : TAB_LABEL_WIDTH;
+  const tabSlotWidth = isMobile ? TAB_SLOT_WIDTH_MOBILE : TAB_SLOT_WIDTH;
+  const tabMeasureWidth = tabSlotWidth * STEPS_PER_MEASURE;
+
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
   const intervalRef = useRef<number | null>(null);
@@ -207,7 +221,7 @@ export default function Home() {
   const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
   const displayUnit = shouldRenderEveryStep || effectiveMinLen === 1 ? 1 : 2;
   const displaySlots = STEPS_PER_MEASURE / displayUnit;
-  const stepWidth = TAB_MEASURE_WIDTH / displaySlots;
+  const stepWidth = tabMeasureWidth / displaySlots;
   const visibleSteps = useMemo(
     () => Array.from({ length: displaySlots }, (_, index) => index * displayUnit),
     [displaySlots, displayUnit]
@@ -681,16 +695,19 @@ export default function Home() {
       osc.type = "triangle";
       osc.frequency.value = frequency;
 
-      const fadeOut = Math.min(0.05, durationSec * 0.1);
+      // Guitar-like envelope: quick attack, sustain through full duration, gentle release
+      const attackEnd = now + 0.005;
+      const sustainEnd = now + durationSec * 0.95;
+      const releaseEnd = now + durationSec;
       gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.16, now + 0.01);
-      gain.gain.setValueAtTime(0.16, now + Math.max(0.02, durationSec - fadeOut));
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSec);
+      gain.gain.exponentialRampToValueAtTime(0.2, attackEnd);
+      gain.gain.linearRampToValueAtTime(0.15, sustainEnd);
+      gain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
 
       osc.connect(gain);
       gain.connect(context.destination);
       osc.start(now);
-      osc.stop(now + durationSec);
+      osc.stop(releaseEnd + 0.01);
     });
   };
 
@@ -725,6 +742,7 @@ export default function Home() {
       linearIndex += 1;
       if (linearIndex >= endLinearExclusive) {
         stopPlayback();
+        setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
         return;
       }
 
@@ -1158,7 +1176,7 @@ export default function Home() {
       ? null
       : Math.floor(currentGlobalStep / STEPS_PER_MEASURE);
   const notationStyle = {
-    "--label-width": `${TAB_LABEL_WIDTH}px`,
+    "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
     "--slot-count": String(totalDisplaySlots),
   } as CSSProperties;
@@ -1180,7 +1198,7 @@ export default function Home() {
     }
 
     const measureStartX = getMeasureStartX(currentPlaybackMeasureIndex, {
-      labelWidth: TAB_LABEL_WIDTH,
+      labelWidth: tabLabelWidth,
       stepWidth,
       stepUnit: displayUnit,
       stepsPerMeasure: STEPS_PER_MEASURE,
@@ -1380,7 +1398,7 @@ export default function Home() {
               <StaffPreview
                 measuresEvents={measuresEvents}
                 currentCursor={playCursor}
-                labelWidth={TAB_LABEL_WIDTH}
+                labelWidth={tabLabelWidth}
                 stepWidth={stepWidth}
                 stepUnit={displayUnit}
               />
