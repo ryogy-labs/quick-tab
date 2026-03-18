@@ -290,7 +290,7 @@ export default function StaffPreview({
 
   return (
     <section className={styles.staffBlock}>
-      <svg className={styles.canvas} width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMinYMin slice" overflow="hidden">
+      <svg className={styles.canvas} width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMinYMin meet">
         <rect x={0} y={0} width={width} height={height} fill="transparent" />
 
         {activeSlot !== null &&
