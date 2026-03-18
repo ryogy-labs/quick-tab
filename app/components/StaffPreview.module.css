@@ -6,3 +6,14 @@
 .canvas {
   display: block;
 }
+
+@media (max-width: 768px) {
+  .staffBlock {
+    padding-top: 2px;
+    padding-bottom: 4px;
+  }
+
+  .canvas {
+    height: 105px;
+  }
+}

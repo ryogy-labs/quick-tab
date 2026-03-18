@@ -425,6 +425,22 @@
     font-size: 28px;
   }
 
+  .cell {
+    height: 22px;
+  }
+
+  .notationFrame {
+    padding: 6px;
+  }
+
+  .notationContent {
+    padding: 4px;
+  }
+
+  .stringLabel {
+    font-size: 11px;
+  }
+
   .tempoControl {
     width: 100%;
     justify-content: space-between;

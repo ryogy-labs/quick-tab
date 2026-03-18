@@ -137,19 +137,25 @@ const normalizeLenForDuration = (len: number): SupportedLen => {
   return snapped;
 };
 
-const restLabel = (duration: DurationToken): string => {
+// Unicode musical rest symbols
+const restSymbol = (duration: DurationToken): { char: string; fontSize: number; yOffset: number } => {
   switch (duration) {
     case "w":
-      return "Rw";
+      // Whole rest: filled rectangle hanging from line 4
+      return { char: "\uD834\uDD3B", fontSize: 32, yOffset: 2 };
     case "h":
-      return "Rh";
+      // Half rest: filled rectangle sitting on line 3
+      return { char: "\uD834\uDD3C", fontSize: 32, yOffset: 2 };
     case "q":
-      return "Rq";
+      // Quarter rest
+      return { char: "\uD834\uDD3D", fontSize: 32, yOffset: 2 };
     case "8":
-      return "R8";
+      // Eighth rest
+      return { char: "\uD834\uDD3E", fontSize: 32, yOffset: 2 };
     case "16":
     default:
-      return "R16";
+      // Sixteenth rest
+      return { char: "\uD834\uDD3F", fontSize: 32, yOffset: 2 };
   }
 };
 
@@ -318,22 +324,24 @@ export default function StaffPreview({
               currentCursor !== null &&
               currentCursor.measureIndex === event.measureIndex &&
               currentCursor.stepIndex === event.step;
+            const sym = restSymbol(duration);
             return (
-              <g key={`rest-${event.step}`}>
+              <g key={`rest-${event.measureIndex}-${event.step}`}>
                 <text
                   x={rest.x}
-                  y={rest.y + 6}
-                  fontSize={14}
+                  y={rest.y + sym.yOffset}
+                  fontSize={sym.fontSize}
                   textAnchor="middle"
+                  dominantBaseline="central"
                   fill={isActive ? "#b34700" : "#111"}
                 >
-                  {restLabel(duration)}
+                  {sym.char}
                 </text>
                 {event.dot && (
                   <circle cx={rest.x + 14} cy={rest.y + 2} r={2} fill={isActive ? "#b34700" : "#111"} />
                 )}
                 {event.triplet && (
-                  <text x={rest.x} y={rest.y - 10} fontSize={10} fontWeight={700} textAnchor="middle" fill={isActive ? "#b34700" : "#111"}>
+                  <text x={rest.x} y={rest.y - 16} fontSize={10} fontWeight={700} textAnchor="middle" fill={isActive ? "#b34700" : "#111"}>
                     3
                   </text>
                 )}
