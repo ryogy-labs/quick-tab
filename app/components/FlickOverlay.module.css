@@ -8,37 +8,73 @@
   transform: translateX(-50%);
 }
 
-.item {
+/* Each row: [3連] [音価] [付点] */
+.row {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
   height: 28px;
-  padding: 0 10px;
+}
+
+/* Center: base duration label */
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 100%;
+  padding: 0 8px;
   border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
-  color: rgba(30, 63, 94, 0.35);
-  background: rgba(255, 255, 255, 0.7);
+  color: rgba(30, 63, 94, 0.3);
+  background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(4px);
   transition: background 0.08s, color 0.08s, transform 0.08s;
-  white-space: nowrap;
 }
 
+/* Current row's center item (not selected because modifier is active) */
+.item.selectedRow {
+  color: rgba(30, 63, 94, 0.55);
+  background: rgba(223, 240, 255, 0.7);
+}
+
+/* Current row's center item when it IS the active selection */
 .item.selected {
-  background: rgba(223, 240, 255, 0.95);
   color: #1e3f5e;
+  background: rgba(223, 240, 255, 0.95);
   box-shadow: inset 0 0 0 1.5px #47a8eb;
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 
-.symbol {
-  min-width: 24px;
-  text-align: center;
-}
-
+/* Left/Right modifier labels */
 .modifier {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 100%;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 700;
-  color: #d35400;
+  white-space: nowrap;
+  color: transparent;
+  background: transparent;
+  transition: all 0.1s;
+}
+
+/* Show modifiers on the active row */
+.modifier.modifierVisible {
+  color: rgba(160, 130, 100, 0.5);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Highlight when the modifier is selected */
+.modifier.modifierSelected {
+  color: #fff;
+  background: #d35400;
+  box-shadow: 0 1px 4px rgba(211, 84, 0, 0.3);
+  transform: scale(1.08);
 }

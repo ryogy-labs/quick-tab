@@ -41,7 +41,6 @@ export default function FlickOverlay({
   // Center the overlay horizontally on the anchor cell
   // Position vertically so the current selection (level 0 = center item) aligns with the cell
   const centerIndex = 2; // index of level 0 (quarter note) in the array
-  const totalHeight = DURATION_LABELS.length * ITEM_HEIGHT + (DURATION_LABELS.length - 1) * GAP;
   const centerItemOffset = centerIndex * (ITEM_HEIGHT + GAP) + ITEM_HEIGHT / 2;
 
   const anchorCenterX = anchorRect.left + anchorRect.width / 2;
@@ -50,26 +49,52 @@ export default function FlickOverlay({
   const left = anchorCenterX;
   const top = anchorCenterY - centerItemOffset;
 
-  // Build modifier label
-  const modifierText =
-    horizontalLevel === -1 ? "3\u9023" : horizontalLevel === 1 ? "\u4ed8\u70b9" : "";
-
   const overlay = (
     <div
       className={styles.overlay}
       style={{ left, top }}
     >
       {DURATION_LABELS.map((item) => {
-        const isSelected = item.level === verticalLevel;
+        const isCurrentRow = item.level === verticalLevel;
+        const isTripletSelected = isCurrentRow && horizontalLevel === -1;
+        const isDottedSelected = isCurrentRow && horizontalLevel === 1;
+        const isBaseSelected = isCurrentRow && horizontalLevel === 0;
+
         return (
           <div
             key={item.level}
-            className={`${styles.item} ${isSelected ? styles.selected : ""}`}
+            className={`${styles.row} ${isCurrentRow ? styles.activeRow : ""}`}
           >
-            <span className={styles.symbol}>{item.symbol}</span>
-            {isSelected && modifierText && (
-              <span className={styles.modifier}>{modifierText}</span>
-            )}
+            {/* Left: 3連 (triplet) */}
+            <span
+              className={`${styles.modifier} ${styles.left} ${
+                isTripletSelected ? styles.modifierSelected : ""
+              } ${isCurrentRow ? styles.modifierVisible : ""}`}
+            >
+              3連
+            </span>
+
+            {/* Center: base duration */}
+            <span
+              className={`${styles.item} ${
+                isCurrentRow
+                  ? isBaseSelected
+                    ? styles.selected
+                    : styles.selectedRow
+                  : ""
+              }`}
+            >
+              {item.symbol}
+            </span>
+
+            {/* Right: 付点 (dotted) */}
+            <span
+              className={`${styles.modifier} ${styles.right} ${
+                isDottedSelected ? styles.modifierSelected : ""
+              } ${isCurrentRow ? styles.modifierVisible : ""}`}
+            >
+              付点
+            </span>
           </div>
         );
       })}
