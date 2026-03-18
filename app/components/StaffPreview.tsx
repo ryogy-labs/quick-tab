@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import styles from "./StaffPreview.module.css";
-import { OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent } from "../tabModel";
+import { OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent, sanitizeEvents } from "../tabModel";
 
 type StaffPreviewProps = {
   measuresEvents: TabEvent[][];
@@ -161,9 +161,7 @@ const buildRenderEvents = (
   measureWidth: number
 ): EventRender[] => {
   return measuresEvents.flatMap((events, measureIndex) =>
-    [...events]
-      .filter((event) => event.step >= 0 && event.step < STEPS_PER_MEASURE)
-      .sort((a, b) => a.step - b.step)
+    sanitizeEvents(events, STEPS_PER_MEASURE)
       .map((event) => {
         const x =
           labelWidth + measureWidth * measureIndex + stepWidth * (event.step / stepUnit + 0.5);

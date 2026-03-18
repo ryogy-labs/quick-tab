@@ -39,6 +39,8 @@ export default function FlickOverlay({
 
   // Each row height matches the threshold so the visual aligns with the detection area
   const rowHeight = threshold;
+  // Horizontal detection uses 60% of threshold in useFlickGesture
+  const hWidth = Math.round(threshold * 0.6);
   const centerIndex = 2; // index of level 0 (quarter note) in the array
   const centerItemOffset = centerIndex * rowHeight + rowHeight / 2;
 
@@ -70,7 +72,7 @@ export default function FlickOverlay({
               className={`${styles.modifier} ${styles.left} ${
                 isTripletSelected ? styles.modifierSelected : ""
               } ${isCurrentRow ? styles.modifierVisible : ""}`}
-              style={{ width: threshold, minWidth: threshold }}
+              style={{ width: hWidth, minWidth: hWidth }}
             >
               3連
             </span>
@@ -94,7 +96,7 @@ export default function FlickOverlay({
               className={`${styles.modifier} ${styles.right} ${
                 isDottedSelected ? styles.modifierSelected : ""
               } ${isCurrentRow ? styles.modifierVisible : ""}`}
-              style={{ width: threshold, minWidth: threshold }}
+              style={{ width: hWidth, minWidth: hWidth }}
             >
               付点
             </span>

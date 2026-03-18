@@ -464,11 +464,7 @@ export default function Home() {
   ) => {
     if (isPlaying) return;
 
-    const stringNumber = rowIndex + 1;
     const safeFret = clampFret(fret);
-    const isActiveNote = activeFretboardNotes.some(
-      (note) => note.string === stringNumber && note.fret === safeFret
-    );
 
     const nextSelected = {
       ...selected,
@@ -479,19 +475,7 @@ export default function Home() {
     setDragSelectionAnchor(null);
     setIsDraggingRange(false);
 
-    // Toggle off: if the same note already exists, delete it
-    if (isActiveNote) {
-      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-      const nextEvents = deleteSpecificNoteAtStep(
-        measureEvents,
-        nextSelected.stepIndex,
-        stringNumber,
-        safeFret
-      );
-      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
-      return;
-    }
-
+    // Always overwrite (no toggle) — flick is an intentional placement gesture
     if (!canPlaceEvent(events, nextSelected.stepIndex, len, { ignoreStep: nextSelected.stepIndex })) {
       return;
     }
