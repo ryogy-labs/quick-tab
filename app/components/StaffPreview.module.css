@@ -11,8 +11,9 @@
   .staffBlock {
     padding-top: 2px;
     padding-bottom: 0;
-    transform: scaleY(0.6);
+    transform: scale(0.6);
     transform-origin: top left;
+    width: calc(100% / 0.6);
     margin-bottom: -70px;
   }
 }
