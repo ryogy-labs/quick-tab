@@ -37,7 +37,7 @@ export default function RestFlickButton({
     [onFlickCommit]
   );
 
-  const { state: flickState, handlers } = useFlickGesture({
+  const { state: flickState, anchorRef, handlers } = useFlickGesture({
     threshold,
     onCommit: handleCommit,
     disabled,
@@ -45,10 +45,15 @@ export default function RestFlickButton({
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      setAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setAnchorRect(rect);
+      anchorRef.current = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
       handlers.onPointerDown(e);
     },
-    [handlers]
+    [handlers, anchorRef]
   );
 
   return (

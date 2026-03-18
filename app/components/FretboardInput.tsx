@@ -65,25 +65,30 @@ export default function FretboardInput({
     [onFlickCommit]
   );
 
-  const { state: flickState, handlers } = useFlickGesture({
+  const { state: flickState, anchorRef, handlers } = useFlickGesture({
     threshold,
     onCommit: handleCommit,
     disabled: isPlaying,
   });
 
-  // Wrap pointerdown to capture which cell was touched
+  // Wrap pointerdown to capture which cell was touched and set anchor center
   const createPointerDown = useCallback(
     (rowIndex: number, fret: number) => (e: React.PointerEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       setFlickCell({ rowIndex, fret });
-      setFlickAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+      setFlickAnchorRect(rect);
+      // Align flick detection origin to cell center so it matches the overlay position
+      anchorRef.current = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
       handlers.onPointerDown(e);
     },
-    [handlers]
+    [handlers, anchorRef]
   );
 
   return (
-    <section className={styles.panel}>
-      <h2 className={styles.title}>Fretboard Input</h2>
+    <div className={styles.fretboardWrapper}>
       <p className={styles.description}>
         Tap to place a quarter note. Flick up/down to change duration, left/right for triplet/dotted.
       </p>
@@ -162,6 +167,6 @@ export default function FretboardInput({
         horizontalLevel={flickState.horizontalLevel}
         threshold={threshold}
       />
-    </section>
+    </div>
   );
 }
