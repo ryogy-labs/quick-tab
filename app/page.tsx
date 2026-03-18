@@ -5,9 +5,11 @@ import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
 import MobileNumpad from "./components/MobileNumpad";
+import RestFlickButton from "./components/RestFlickButton";
 import {
   CellPosition,
   DURATION_OPTIONS,
+  DurationModifier,
   OPEN_STRING_MIDI_BY_STRING,
   STEPS_PER_MEASURE,
   StepRangeClipboard,
@@ -31,6 +33,7 @@ import {
   extractRangeClipboardFromMeasure,
   findEventAtStep,
   getCellFret,
+  getPlaybackDuration,
   insertMeasure,
   isStepBlockedForNewStart,
   isStepInRange,
@@ -450,6 +453,111 @@ export default function Home() {
     setSingleCellSelection(result.nextSelected);
   };
 
+  // --- Flick-based input (音程+音価を1アクションで入力) ---
+
+  const commitFretboardFlick = (
+    rowIndex: number,
+    fret: number,
+    len: number,
+    modifier: DurationModifier
+  ) => {
+    if (isPlaying) return;
+
+    const stringNumber = rowIndex + 1;
+    const safeFret = clampFret(fret);
+    const isActiveNote = activeFretboardNotes.some(
+      (note) => note.string === stringNumber && note.fret === safeFret
+    );
+
+    const nextSelected = {
+      ...selected,
+      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, rowIndex)),
+    };
+    setSelected(nextSelected);
+    setSelectedRange(null);
+    setDragSelectionAnchor(null);
+    setIsDraggingRange(false);
+
+    // Toggle off: if the same note already exists, delete it
+    if (isActiveNote) {
+      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+      const nextEvents = deleteSpecificNoteAtStep(
+        measureEvents,
+        nextSelected.stepIndex,
+        stringNumber,
+        safeFret
+      );
+      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+      return;
+    }
+
+    if (!canPlaceEvent(events, nextSelected.stepIndex, len, { ignoreStep: nextSelected.stepIndex })) {
+      return;
+    }
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = upsertNoteAtCell(measureEvents, nextSelected, safeFret, len);
+
+    // Apply dot/triplet modifier to the inserted event
+    const modifiedEvents = nextEvents.map((ev) => {
+      if (ev.step !== nextSelected.stepIndex) return ev;
+      const base = { ...ev };
+      delete base.dot;
+      delete base.triplet;
+      if (modifier === "dotted") return { ...base, dot: true as const };
+      if (modifier === "triplet") return { ...base, triplet: true as const };
+      return base;
+    });
+
+    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, modifiedEvents);
+    const result = getNextCursorPositionWithAutoAppend(
+      updatedData,
+      nextSelected,
+      len,
+      isPlaying
+    );
+    commitTabData(result.nextData);
+    setSingleCellSelection(result.nextSelected);
+
+    // Sync toolbar duration display
+    setInputLen(len);
+    setIsRestMode(false);
+  };
+
+  const placeRestWithFlick = (len: number, modifier: DurationModifier) => {
+    if (isPlaying) return;
+    const stepIndex = selected.stepIndex;
+    if (!canPlaceEvent(events, stepIndex, len, { ignoreStep: stepIndex })) {
+      return;
+    }
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, len);
+
+    // Apply dot/triplet modifier
+    const modifiedEvents = nextEvents.map((ev) => {
+      if (ev.step !== stepIndex) return ev;
+      const base = { ...ev };
+      delete base.dot;
+      delete base.triplet;
+      if (modifier === "dotted") return { ...base, dot: true as const };
+      if (modifier === "triplet") return { ...base, triplet: true as const };
+      return base;
+    });
+
+    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, modifiedEvents);
+    const result = getNextCursorPositionWithAutoAppend(
+      updatedData,
+      { ...selected, stepIndex },
+      len,
+      isPlaying
+    );
+    commitTabData(result.nextData);
+    setSingleCellSelection(result.nextSelected);
+
+    // Sync toolbar
+    setInputLen(len);
+    setIsRestMode(true);
+  };
+
   const stopPlayback = useMemo(
     () => () => {
       if (intervalRef.current !== null) {
@@ -568,7 +676,7 @@ export default function Home() {
     }
 
     const stepSec = (60 / tempo) / 4;
-    const durationSec = stepSec * event.len;
+    const durationSec = stepSec * getPlaybackDuration(event);
     const now = context.currentTime;
 
     event.notes.forEach((note) => {
@@ -1390,9 +1498,19 @@ export default function Home() {
 
         <FretboardInput
           activeNotes={activeFretboardNotes}
-          onSelectFret={commitFretboardNote}
+          onFlickCommit={commitFretboardFlick}
           isPlaying={isPlaying}
         />
+
+        <div className={styles.restFlickRow}>
+          <RestFlickButton
+            onFlickCommit={placeRestWithFlick}
+            disabled={isPlaying}
+          />
+          <span className={styles.restFlickHint}>
+            R: Tap for quarter rest, flick for other durations
+          </span>
+        </div>
       </main>
     </div>
   );

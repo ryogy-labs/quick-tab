@@ -13,11 +13,15 @@ export type TabNoteEventNote = {
   fret: number;
 };
 
+export type DurationModifier = "normal" | "dotted" | "triplet";
+
 export type TabNoteEvent = {
   step: number;
   len: number;
   notes: TabNoteEventNote[];
   rest?: false;
+  dot?: boolean;
+  triplet?: boolean;
 };
 
 export type TabRestEvent = {
@@ -25,6 +29,8 @@ export type TabRestEvent = {
   len: number;
   rest: true;
   notes?: never;
+  dot?: boolean;
+  triplet?: boolean;
 };
 
 export type TabEvent = TabNoteEvent | TabRestEvent;
@@ -80,6 +86,21 @@ export type StepRangeClipboard = {
 
 type PlacementOptions = {
   ignoreStep?: number;
+};
+
+// Flick gesture: vertical level (-2..+2) to step-based len
+export const FLICK_DURATION_MAP: Record<number, number> = {
+  [-2]: 1,   // ↑↑ 16th note
+  [-1]: 2,   // ↑  8th note
+  [0]: 4,    // tap quarter note
+  [1]: 8,    // ↓  half note
+  [2]: 16,   // ↓↓ whole note
+};
+
+export const getPlaybackDuration = (event: TabEvent): number => {
+  if (event.dot) return event.len * 1.5;
+  if (event.triplet) return event.len * (2 / 3);
+  return event.len;
 };
 
 export const DURATION_OPTIONS: DurationOption[] = [
@@ -341,8 +362,12 @@ const sanitizeEvent = (event: TabEvent, stepsPerMeasure: number): TabEvent | nul
   const step = clampStepByMeasure(event.step, stepsPerMeasure);
   const len = clampLenByMeasure(event.len, step, stepsPerMeasure);
 
+  // Preserve dot/triplet but strip invalid combo (both set)
+  const dot = event.dot && !event.triplet ? true : undefined;
+  const triplet = event.triplet && !event.dot ? true : undefined;
+
   if ("rest" in event && event.rest) {
-    return { step, len, rest: true };
+    return { step, len, rest: true, ...(dot && { dot }), ...(triplet && { triplet }) };
   }
 
   const notes = sortAndDedupeNotes(event.notes ?? []);
@@ -350,7 +375,7 @@ const sanitizeEvent = (event: TabEvent, stepsPerMeasure: number): TabEvent | nul
     return null;
   }
 
-  return { step, len, notes };
+  return { step, len, notes, ...(dot && { dot }), ...(triplet && { triplet }) };
 };
 
 export const sanitizeEvents = (

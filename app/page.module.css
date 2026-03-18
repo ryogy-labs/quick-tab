@@ -357,6 +357,18 @@
   cursor: pointer;
 }
 
+.restFlickRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.restFlickHint {
+  font-size: 13px;
+  color: #5a7a96;
+}
+
 @media (max-width: 768px) {
   .page {
     padding: 10px;

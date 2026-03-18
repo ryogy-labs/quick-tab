@@ -32,6 +32,8 @@ type EventRender = {
   len: number;
   isRest: boolean;
   notes: NoteRender[];
+  dot?: boolean;
+  triplet?: boolean;
 };
 
 type DurationToken = "w" | "h" | "q" | "8" | "16";
@@ -173,6 +175,8 @@ const buildRenderEvents = (
             len: event.len,
             isRest: true,
             notes: [{ x, y: STAFF_CENTER_Y, accidental: "" }],
+            dot: event.dot,
+            triplet: event.triplet,
           };
         }
 
@@ -199,6 +203,8 @@ const buildRenderEvents = (
           len: event.len,
           isRest: false,
           notes,
+          dot: event.dot,
+          triplet: event.triplet,
         };
       })
   );
@@ -315,16 +321,25 @@ export default function StaffPreview({
               currentCursor.measureIndex === event.measureIndex &&
               currentCursor.stepIndex === event.step;
             return (
-              <text
-                key={`rest-${event.step}`}
-                x={rest.x}
-                y={rest.y + 6}
-                fontSize={14}
-                textAnchor="middle"
-                fill={isActive ? "#b34700" : "#111"}
-              >
-                {restLabel(duration)}
-              </text>
+              <g key={`rest-${event.step}`}>
+                <text
+                  x={rest.x}
+                  y={rest.y + 6}
+                  fontSize={14}
+                  textAnchor="middle"
+                  fill={isActive ? "#b34700" : "#111"}
+                >
+                  {restLabel(duration)}
+                </text>
+                {event.dot && (
+                  <circle cx={rest.x + 14} cy={rest.y + 2} r={2} fill={isActive ? "#b34700" : "#111"} />
+                )}
+                {event.triplet && (
+                  <text x={rest.x} y={rest.y - 10} fontSize={10} fontWeight={700} textAnchor="middle" fill={isActive ? "#b34700" : "#111"}>
+                    3
+                  </text>
+                )}
+              </g>
             );
           }
 
@@ -412,6 +427,29 @@ export default function StaffPreview({
                     />
                   );
                 })}
+              {/* Dotted note indicator */}
+              {event.dot && event.notes.map((note, idx) => (
+                <circle
+                  key={`dot-${event.step}-${idx}`}
+                  cx={note.x + NOTE_RADIUS_X + 5}
+                  cy={note.y}
+                  r={2}
+                  fill={noteStroke}
+                />
+              ))}
+              {/* Triplet indicator */}
+              {event.triplet && (
+                <text
+                  x={event.notes[0].x}
+                  y={stemUp ? stemTipY - 4 : stemTipY + 12}
+                  fontSize={10}
+                  fontWeight={700}
+                  textAnchor="middle"
+                  fill={noteStroke}
+                >
+                  3
+                </text>
+              )}
             </g>
           );
         })}
