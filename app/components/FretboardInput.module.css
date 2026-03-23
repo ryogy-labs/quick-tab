@@ -3,10 +3,37 @@
   flex-direction: column;
 }
 
+.fretboardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .description {
   color: #355172;
   font-size: 13px;
-  margin: 0 0 10px;
+  margin: 0;
+}
+
+.zoomControl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.zoomLabel {
+  font-size: 11px;
+  color: #355172;
+  min-width: 32px;
+  text-align: right;
+}
+
+.zoomSlider {
+  width: 80px;
+  accent-color: #4ca6e6;
 }
 
 .fretboard {
@@ -182,10 +209,6 @@
 }
 
 @media (max-width: 768px) {
-  .fretboard {
-    zoom: 0.7;
-  }
-
   .fretboardScroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
