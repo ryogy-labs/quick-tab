@@ -27,6 +27,7 @@ import {
   copyMeasure,
   createEmptyTabDataV2,
   deleteMeasure,
+  deleteEventAtStep,
   deleteSpecificNoteAtStep,
   deleteCellOrRestAtStep,
   duplicateMeasure,
@@ -943,10 +944,7 @@ export default function Home() {
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
-    const nextEvents = deleteCellOrRestAtStep(measureEvents, {
-      ...selected,
-      stepIndex: owningStep,
-    });
+    const nextEvents = deleteEventAtStep(measureEvents, owningStep);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
 

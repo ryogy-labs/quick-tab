@@ -587,6 +587,14 @@ export const deleteCellOrRestAtStep = (
   return sanitizeEvents(next, STEPS_PER_MEASURE);
 };
 
+export const deleteEventAtStep = (
+  events: TabEvent[],
+  stepIndex: number
+): TabEvent[] => {
+  const safeStep = clampStep(stepIndex);
+  return sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+};
+
 export const deleteSpecificNoteAtStep = (
   events: TabEvent[],
   stepIndex: number,
