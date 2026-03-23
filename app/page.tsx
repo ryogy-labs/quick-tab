@@ -1452,8 +1452,23 @@ export default function Home() {
         </div>
 
         <div className={styles.notationFrame}>
-          <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
-          <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
+          <div className={styles.notationHeader}>
+            <div>
+              <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
+              <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
+            </div>
+            <div className={styles.zoomControl}>
+              <span className={styles.zoomLabel}>{Math.round(notationScale * 100)}%</span>
+              <input
+                type="range"
+                min="30"
+                max="150"
+                value={Math.round(notationScale * 100)}
+                onChange={(e) => setNotationScale(Number(e.target.value) / 100)}
+                className={styles.zoomSlider}
+              />
+            </div>
+          </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
