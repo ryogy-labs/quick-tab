@@ -422,11 +422,11 @@
   }
 
   .cellValue {
-    font-size: 18px;
+    font-size: 32px;
   }
 
   .cell {
-    height: 16px;
+    height: 14px;
   }
 
   .notationFrame {
@@ -439,7 +439,7 @@
   }
 
   .stringLabel {
-    font-size: 9px;
+    font-size: 16px;
   }
 
   .tempoControl {
