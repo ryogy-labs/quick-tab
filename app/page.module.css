@@ -174,16 +174,42 @@
   padding: 10px;
 }
 
+.notationHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .notationTitle {
   font-size: 16px;
   color: #1e3f5e;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .measureBadge {
   font-size: 12px;
   color: #355172;
-  margin-bottom: 8px;
+}
+
+.zoomControl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.zoomLabel {
+  font-size: 11px;
+  color: #355172;
+  min-width: 32px;
+  text-align: right;
+}
+
+.zoomSlider {
+  width: 80px;
+  accent-color: #4ca6e6;
 }
 
 .notationScroll {
@@ -194,6 +220,8 @@
   --label-width: 92px;
   --step-width: 48px;
   --slot-count: 16;
+  --notation-scale: 1;
+  zoom: var(--notation-scale);
   width: calc(var(--label-width) + (var(--step-width) * var(--slot-count)));
   min-width: calc(var(--label-width) + (var(--step-width) * var(--slot-count)));
   border: 1px solid #d1e1ef;
@@ -203,6 +231,7 @@
 }
 
 .grid {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -212,7 +241,7 @@
   display: grid;
   grid-template-columns: var(--label-width) repeat(var(--slot-count), var(--step-width));
   gap: 0;
-  align-items: center;
+  align-items: stretch;
 }
 
 .stringLabel {
@@ -221,6 +250,9 @@
   color: #274968;
   text-align: right;
   padding-right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .cell {
@@ -294,24 +326,18 @@
   opacity: 1;
 }
 
-.barStart::after {
-  content: "";
+.barLine {
   position: absolute;
-  left: 0;
   top: 0;
   bottom: 0;
+  width: 0;
   border-left: 1px solid #1c2f42;
   z-index: 3;
+  pointer-events: none;
 }
 
-.barEnd::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  border-right: 2px solid #1c2f42;
-  z-index: 3;
+.barLineEnd {
+  border-left-width: 2px;
 }
 
 .editPanel {
@@ -422,11 +448,11 @@
   }
 
   .cellValue {
-    font-size: 18px;
+    font-size: 32px;
   }
 
   .cell {
-    height: 16px;
+    height: 14px;
   }
 
   .notationFrame {
@@ -435,11 +461,10 @@
 
   .notationContent {
     padding: 4px;
-    zoom: 0.5;
   }
 
   .stringLabel {
-    font-size: 9px;
+    font-size: 16px;
   }
 
   .tempoControl {

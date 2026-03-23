@@ -56,6 +56,8 @@ const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
 const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 1.5;
 
 type PlayCursor = {
   measureIndex: number;
@@ -183,6 +185,22 @@ export default function Home() {
   const tabLabelWidth = isMobile ? TAB_LABEL_WIDTH_MOBILE : TAB_LABEL_WIDTH;
   const tabSlotWidth = isMobile ? TAB_SLOT_WIDTH_MOBILE : TAB_SLOT_WIDTH;
   const tabMeasureWidth = tabSlotWidth * STEPS_PER_MEASURE;
+
+  const [notationScale, setNotationScale] = useState(1);
+  const notationScaleRef = useRef(1);
+  notationScaleRef.current = notationScale;
+
+  const [fretboardScale, setFretboardScale] = useState(1);
+  const handleFretboardScaleChange = useCallback(
+    (s: number) => setFretboardScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))),
+    []
+  );
+
+  // Set initial mobile scale
+  useEffect(() => {
+    setNotationScale(isMobile ? 0.5 : 1);
+    setFretboardScale(isMobile ? 0.7 : 1);
+  }, [isMobile]);
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
@@ -1190,6 +1208,7 @@ export default function Home() {
     "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
     "--slot-count": String(totalDisplaySlots),
+    "--notation-scale": String(notationScale),
   } as CSSProperties;
 
   useEffect(() => {
@@ -1218,6 +1237,48 @@ export default function Home() {
     container.scrollTo({ left: nextLeft, behavior: "auto" });
     prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
   }, [currentPlaybackMeasureIndex, displayUnit, isPlaying, stepWidth]);
+
+  // Pinch-to-zoom on notation area
+  const pinchRef = useRef<{ initialDist: number; initialScale: number } | null>(null);
+  useEffect(() => {
+    const el = timelineScrollRef.current;
+    if (!el) return;
+
+    const getDistance = (t1: Touch, t2: Touch) =>
+      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchRef.current = {
+          initialDist: getDistance(e.touches[0], e.touches[1]),
+          initialScale: notationScaleRef.current,
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const dist = getDistance(e.touches[0], e.touches[1]);
+        const ratio = dist / pinchRef.current.initialDist;
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchRef.current.initialScale * ratio));
+        setNotationScale(newScale);
+      }
+    };
+
+    const onTouchEnd = () => { pinchRef.current = null; };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
 
   useEffect(() => {
     setSelected((prev) => {
@@ -1402,8 +1463,23 @@ export default function Home() {
         </div>
 
         <div className={styles.notationFrame}>
-          <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
-          <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
+          <div className={styles.notationHeader}>
+            <div>
+              <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
+              <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
+            </div>
+            <div className={styles.zoomControl}>
+              <span className={styles.zoomLabel}>{Math.round(notationScale * 100)}%</span>
+              <input
+                type="range"
+                min={String(MIN_SCALE * 100)}
+                max={String(MAX_SCALE * 100)}
+                value={Math.round(notationScale * 100)}
+                onChange={(e) => setNotationScale(Number(e.target.value) / 100)}
+                className={styles.zoomSlider}
+              />
+            </div>
+          </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
               <StaffPreview
@@ -1414,6 +1490,19 @@ export default function Home() {
                 stepUnit={displayUnit}
               />
               <div className={styles.grid} ref={gridRef}>
+                {/* Bar lines spanning full grid height */}
+                {Array.from({ length: totalMeasures + 1 }, (_, i) => {
+                  const isEnd = i === totalMeasures;
+                  const measureSlotWidth = stepWidth * displaySlots;
+                  const left = tabLabelWidth + i * measureSlotWidth;
+                  return (
+                    <div
+                      key={`barline-${i}`}
+                      className={`${styles.barLine} ${isEnd ? styles.barLineEnd : ""}`}
+                      style={{ left: `${left}px` }}
+                    />
+                  );
+                })}
                 {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
                   <div key={`row-${rowIndex}`} className={styles.row}>
                     <div className={styles.stringLabel}>
@@ -1440,8 +1529,6 @@ export default function Home() {
                         selectedRange !== null
                           ? isStepInRange(selectedRange, measureIndex, stepIndex)
                           : isDurationPreviewStep(measureIndex, stepIndex);
-                      const isBarStart = slotIndex === 0;
-                      const isBarEnd = slotIndex === displaySlots - 1;
                       const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
                       return (
                         <button
@@ -1454,8 +1541,6 @@ export default function Home() {
                           } ${isStepHighlighted ? styles.durationPreview : ""} ${
                             isDraggingRange ? styles.dragSelecting : ""
                           } ${isCurrentStep ? styles.playing : ""} ${
-                            isBarStart ? styles.barStart : ""
-                          } ${isBarEnd ? styles.barEnd : ""} ${
                             isBlocked ? styles.blocked : ""
                           }`.trim()}
                           onMouseDown={(event) => {
@@ -1537,6 +1622,8 @@ export default function Home() {
             activeNotes={activeFretboardNotes}
             onFlickCommit={commitFretboardFlick}
             isPlaying={isPlaying}
+            scale={fretboardScale}
+            onScaleChange={handleFretboardScaleChange}
           />
           <div className={styles.restFlickRow}>
             <RestFlickButton

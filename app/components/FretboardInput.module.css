@@ -3,13 +3,48 @@
   flex-direction: column;
 }
 
+.fretboardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .description {
   color: #355172;
   font-size: 13px;
-  margin: 0 0 10px;
+  margin: 0;
+}
+
+.zoomControl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.zoomLabel {
+  font-size: 11px;
+  color: #355172;
+  min-width: 32px;
+  text-align: right;
+}
+
+.zoomSlider {
+  width: 80px;
+  accent-color: #4ca6e6;
 }
 
 .fretboard {
+  --fretboard-scale: 1;
+  --open-width: calc(108px * var(--fretboard-scale));
+  --fret-width: calc(48px * var(--fretboard-scale));
+  --row-height: calc(48px * var(--fretboard-scale));
+  --hit-size: calc(32px * var(--fretboard-scale));
+  --string-font-size: calc(12px * var(--fretboard-scale));
+  --string-pad-y: calc(4px * var(--fretboard-scale));
+  --string-pad-x: calc(8px * var(--fretboard-scale));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -19,14 +54,17 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .fretNumbers,
 .markersLayer,
 .stringRow {
   display: grid;
-  grid-template-columns: 108px repeat(12, minmax(42px, 1fr));
+  grid-template-columns: var(--open-width) repeat(12, var(--fret-width));
   align-items: center;
+  width: max-content;
+  min-width: 100%;
 }
 
 .fretNumbers {
@@ -107,7 +145,7 @@
   background: transparent;
   cursor: pointer;
   position: relative;
-  min-height: 48px;
+  min-height: var(--row-height);
   padding: 0;
   touch-action: none;
 }
@@ -129,14 +167,16 @@
   justify-content: flex-end;
   align-items: center;
   padding-right: 10px;
+  min-width: 0;
 }
 
 .stringName {
   color: #274968;
-  font-size: 12px;
+  font-size: var(--string-font-size);
   font-weight: 700;
   border-radius: 999px;
-  padding: 4px 8px;
+  padding: var(--string-pad-y) var(--string-pad-x);
+  white-space: nowrap;
 }
 
 .activeNote .stringName,
@@ -170,8 +210,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: var(--hit-size);
+  height: var(--hit-size);
   border-radius: 999px;
   background: rgb(255 255 255 / 0.2);
 }
@@ -182,10 +222,6 @@
 }
 
 @media (max-width: 768px) {
-  .fretboard {
-    zoom: 0.7;
-  }
-
   .fretboardScroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -200,18 +236,13 @@
   .fretNumbers,
   .markersLayer,
   .stringRow {
-    grid-template-columns: 40px repeat(12, 55px);
+    grid-template-columns: calc(40px * var(--fretboard-scale)) repeat(12, calc(55px * var(--fretboard-scale)));
     min-width: max-content;
-  }
-
-  .hitArea {
-    width: 32px;
-    height: 32px;
   }
 
   .openString,
   .fretCell {
-    min-height: 36px;
+    min-height: calc(36px * var(--fretboard-scale));
   }
 
   .openString {
@@ -219,12 +250,12 @@
   }
 
   .stringName {
-    font-size: 10px;
-    padding: 2px 4px;
+    font-size: calc(10px * var(--fretboard-scale));
+    padding: calc(2px * var(--fretboard-scale)) calc(4px * var(--fretboard-scale));
   }
 
   .fretNumbers {
-    font-size: 10px;
+    font-size: calc(10px * var(--fretboard-scale));
   }
 
   .board {
