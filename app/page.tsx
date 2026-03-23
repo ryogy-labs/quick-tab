@@ -942,7 +942,11 @@ export default function Home() {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = deleteCellOrRestAtStep(measureEvents, selected);
+    const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
+    const nextEvents = deleteCellOrRestAtStep(measureEvents, {
+      ...selected,
+      stepIndex: owningStep,
+    });
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
 
@@ -1506,7 +1510,7 @@ export default function Home() {
                 {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
                   <div key={`row-${rowIndex}`} className={styles.row}>
                     <div className={styles.stringLabel}>
-                      {TUNING[rowIndex]} ({rowIndex + 1})
+                      {TUNING[rowIndex]}
                     </div>
                     {Array.from({ length: totalDisplaySlots }, (_, globalSlotIndex) => {
                       const measureIndex = Math.floor(globalSlotIndex / displaySlots);
