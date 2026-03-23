@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { CSSProperties, useState, useCallback, useEffect, useRef } from "react";
 import styles from "./FretboardInput.module.css";
 import { DurationModifier } from "../tabModel";
 import { useFlickGesture, FlickResult } from "../hooks/useFlickGesture";
@@ -142,6 +142,10 @@ export default function FretboardInput({
     };
   }, [onScaleChange]);
 
+  const fretboardStyle = {
+    "--fretboard-scale": String(scale),
+  } as CSSProperties;
+
   return (
     <div className={styles.fretboardWrapper}>
       <div className={styles.fretboardHeader}>
@@ -160,7 +164,7 @@ export default function FretboardInput({
           />
         </div>
       </div>
-      <div className={styles.fretboard} style={{ zoom: scale }}>
+      <div className={styles.fretboard} style={fretboardStyle}>
         <div ref={fretboardScrollRef} className={styles.fretboardScroll}>
         <div className={styles.fretNumbers}>
           <div className={styles.nutSpacer}>Open</div>
