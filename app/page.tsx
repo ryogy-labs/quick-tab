@@ -401,6 +401,7 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+    playNotePreview(updatedData, selectedMeasureIndex, selected.stepIndex);
   };
 
   const commitFretboardNote = (rowIndex: number, fret: number) => {
@@ -450,6 +451,7 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
@@ -517,6 +519,7 @@ export default function Home() {
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
+    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
 
     // Sync toolbar duration display
     setInputLen(len);
@@ -660,6 +663,14 @@ export default function Home() {
       }
     };
   }, [stopPlayback]);
+
+  const playNotePreview = (data: TabDataV2, measureIndex: number, stepIndex: number) => {
+    const evts = getMeasureEvents(data, measureIndex);
+    const evt = findEventAtStep(evts, stepIndex);
+    if (evt) {
+      void playEvent(evt, data.tempo);
+    }
+  };
 
   const playEvent = async (event: TabEvent, tempo: number) => {
     if ("rest" in event && event.rest) {
