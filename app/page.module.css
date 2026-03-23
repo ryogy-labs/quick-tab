@@ -435,6 +435,7 @@
 
   .notationContent {
     padding: 4px;
+    zoom: 0.5;
   }
 
   .stringLabel {
