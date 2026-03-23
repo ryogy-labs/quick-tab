@@ -56,6 +56,8 @@ const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
 const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 1.5;
 
 type PlayCursor = {
   measureIndex: number;
@@ -188,9 +190,16 @@ export default function Home() {
   const notationScaleRef = useRef(1);
   notationScaleRef.current = notationScale;
 
+  const [fretboardScale, setFretboardScale] = useState(1);
+  const handleFretboardScaleChange = useCallback(
+    (s: number) => setFretboardScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))),
+    []
+  );
+
   // Set initial mobile scale
   useEffect(() => {
     setNotationScale(isMobile ? 0.5 : 1);
+    setFretboardScale(isMobile ? 0.7 : 1);
   }, [isMobile]);
 
   const digitBufferRef = useRef<string>("");
@@ -1252,7 +1261,7 @@ export default function Home() {
         e.preventDefault();
         const dist = getDistance(e.touches[0], e.touches[1]);
         const ratio = dist / pinchRef.current.initialDist;
-        const newScale = Math.min(1.5, Math.max(0.3, pinchRef.current.initialScale * ratio));
+        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchRef.current.initialScale * ratio));
         setNotationScale(newScale);
       }
     };
@@ -1262,10 +1271,12 @@ export default function Home() {
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
   }, []);
 
@@ -1461,8 +1472,8 @@ export default function Home() {
               <span className={styles.zoomLabel}>{Math.round(notationScale * 100)}%</span>
               <input
                 type="range"
-                min="30"
-                max="150"
+                min={String(MIN_SCALE * 100)}
+                max={String(MAX_SCALE * 100)}
                 value={Math.round(notationScale * 100)}
                 onChange={(e) => setNotationScale(Number(e.target.value) / 100)}
                 className={styles.zoomSlider}
@@ -1611,6 +1622,8 @@ export default function Home() {
             activeNotes={activeFretboardNotes}
             onFlickCommit={commitFretboardFlick}
             isPlaying={isPlaying}
+            scale={fretboardScale}
+            onScaleChange={handleFretboardScaleChange}
           />
           <div className={styles.restFlickRow}>
             <RestFlickButton

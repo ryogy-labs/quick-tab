@@ -10,7 +10,12 @@ type FretboardInputProps = {
   activeNotes: Array<{ string: number; fret: number }>;
   onFlickCommit: (rowIndex: number, fret: number, len: number, modifier: DurationModifier) => void;
   isPlaying: boolean;
+  scale: number;
+  onScaleChange: (scale: number) => void;
 };
+
+const MIN_SCALE = 0.3;
+const MAX_SCALE = 1.5;
 
 const FRET_NUMBERS = Array.from({ length: 12 }, (_, index) => index + 1);
 
@@ -32,6 +37,8 @@ export default function FretboardInput({
   activeNotes,
   onFlickCommit,
   isPlaying,
+  scale,
+  onScaleChange,
 }: FretboardInputProps) {
   const activeNoteSet = new Set(activeNotes.map((note) => `${note.string}:${note.fret}`));
 
@@ -87,13 +94,74 @@ export default function FretboardInput({
     [handlers, anchorRef]
   );
 
+  const fretboardScrollRef = useRef<HTMLDivElement>(null);
+  const pinchRef = useRef<{ initialDist: number; initialScale: number } | null>(null);
+  const scaleRef = useRef(scale);
+  scaleRef.current = scale;
+
+  useEffect(() => {
+    const el = fretboardScrollRef.current;
+    if (!el) return;
+
+    const getDistance = (t1: Touch, t2: Touch) =>
+      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        pinchRef.current = {
+          initialDist: getDistance(e.touches[0], e.touches[1]),
+          initialScale: scaleRef.current,
+        };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && pinchRef.current) {
+        e.preventDefault();
+        const dist = getDistance(e.touches[0], e.touches[1]);
+        const ratio = dist / pinchRef.current.initialDist;
+        const newScale = Math.min(
+          MAX_SCALE,
+          Math.max(MIN_SCALE, pinchRef.current.initialScale * ratio)
+        );
+        onScaleChange(newScale);
+      }
+    };
+
+    const onTouchEnd = () => { pinchRef.current = null; };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [onScaleChange]);
+
   return (
     <div className={styles.fretboardWrapper}>
-      <p className={styles.description}>
-        Tap to place a quarter note. Flick up/down to change duration, left/right for triplet/dotted.
-      </p>
-      <div className={styles.fretboard}>
-        <div className={styles.fretboardScroll}>
+      <div className={styles.fretboardHeader}>
+        <p className={styles.description}>
+          Tap to place a quarter note. Flick up/down to change duration, left/right for triplet/dotted.
+        </p>
+        <div className={styles.zoomControl}>
+          <span className={styles.zoomLabel}>{Math.round(scale * 100)}%</span>
+          <input
+            type="range"
+            min={String(MIN_SCALE * 100)}
+            max={String(MAX_SCALE * 100)}
+            value={Math.round(scale * 100)}
+            onChange={(e) => onScaleChange(Number(e.target.value) / 100)}
+            className={styles.zoomSlider}
+          />
+        </div>
+      </div>
+      <div className={styles.fretboard} style={{ zoom: scale }}>
+        <div ref={fretboardScrollRef} className={styles.fretboardScroll}>
         <div className={styles.fretNumbers}>
           <div className={styles.nutSpacer}>Open</div>
           {FRET_NUMBERS.map((fret) => (
