@@ -11,12 +11,6 @@
   margin-bottom: 8px;
 }
 
-.description {
-  color: #355172;
-  font-size: 13px;
-  margin: 0;
-}
-
 .zoomControl {
   display: flex;
   align-items: center;

@@ -149,9 +149,6 @@ export default function FretboardInput({
   return (
     <div className={styles.fretboardWrapper}>
       <div className={styles.fretboardHeader}>
-        <p className={styles.description}>
-          Tap to place a quarter note. Flick up/down to change duration, left/right for triplet/dotted.
-        </p>
         <div className={styles.zoomControl}>
           <span className={styles.zoomLabel}>{Math.round(scale * 100)}%</span>
           <input
