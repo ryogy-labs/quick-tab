@@ -4,12 +4,11 @@ import { ChangeEvent, CSSProperties, useCallback, useEffect, useMemo, useRef, us
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
-import MobileNumpad from "./components/MobileNumpad";
-import CollapsibleSection from "./components/CollapsibleSection";
 import RestFlickButton from "./components/RestFlickButton";
+import DropdownMenu from "./components/DropdownMenu";
 import {
   CellPosition,
-  DURATION_OPTIONS,
+
   DurationModifier,
   OPEN_STRING_MIDI_BY_STRING,
   STEPS_PER_MEASURE,
@@ -162,7 +161,6 @@ export default function Home() {
   const [inputLen, setInputLen] = useState<number>(1);
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
-  const [mobileFretInput, setMobileFretInput] = useState<string>("");
   const [numpadBuffer, setNumpadBuffer] = useState<string>("");
   const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
   const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
@@ -1324,163 +1322,107 @@ export default function Home() {
     setIsRestMode(false);
   }, [selectedEvent]);
 
+  const [tempoEditing, setTempoEditing] = useState(false);
+
+  const menuItems = useMemo(() => [
+    { type: "button" as const, label: "Undo", onClick: handleUndo, disabled: !canUndo },
+    { type: "button" as const, label: "Redo", onClick: handleRedo, disabled: !canRedo },
+    { type: "separator" as const },
+    { type: "button" as const, label: "Add Measure", onClick: handleAddMeasure, disabled: isPlaying },
+    { type: "button" as const, label: "Insert Measure", onClick: handleInsertMeasure, disabled: isPlaying },
+    { type: "button" as const, label: "Delete Measure", onClick: handleDeleteMeasure, disabled: isPlaying || totalMeasures <= 1 },
+    { type: "button" as const, label: "Duplicate Measure", onClick: handleDuplicateMeasure, disabled: isPlaying },
+    { type: "separator" as const },
+    { type: "button" as const, label: "Copy Measure", onClick: handleCopyMeasure },
+    { type: "button" as const, label: "Paste Measure", onClick: handlePasteMeasure, disabled: isPlaying || measureClipboard === null },
+    { type: "button" as const, label: "Copy Range", onClick: handleCopyRange, disabled: selectedRange === null },
+    { type: "button" as const, label: "Paste Range", onClick: handlePasteRange, disabled: isPlaying || rangeClipboard === null },
+    { type: "separator" as const },
+    { type: "button" as const, label: "Export JSON", onClick: handleExport },
+    { type: "file" as const, label: "Import JSON", accept: "application/json", onChange: handleImportFile },
+  ], [canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleImportFile]);
+
   return (
     <div className={styles.page}>
       <main className={styles.main}>
-        <div className={styles.headerRow}>
-          <h1>Quick TAB MVP (Event Mode)</h1>
-          <p>Duration first then choose cell then type fret number</p>
-        </div>
-
-        <div className={styles.measureNav}>
-          <button
-            type="button"
-            onClick={handlePrevMeasure}
-            disabled={isPlaying || selectedMeasureIndex <= 0}
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            onClick={handleNextMeasure}
-            disabled={isPlaying || selectedMeasureIndex >= totalMeasures - 1}
-          >
-            Next
-          </button>
-          <button type="button" onClick={handleAddMeasure} disabled={isPlaying}>
-            + Measure
-          </button>
-          <button type="button" onClick={handleInsertMeasure} disabled={isPlaying}>
-            Insert Measure
-          </button>
-          <button
-            type="button"
-            onClick={handleDeleteMeasure}
-            disabled={isPlaying || totalMeasures <= 1}
-          >
-            Delete Measure
-          </button>
-          <button type="button" onClick={handleDuplicateMeasure} disabled={isPlaying}>
-            Duplicate Measure
-          </button>
-          <button type="button" onClick={handleCopyMeasure}>
-            Copy Measure
-          </button>
-          <button
-            type="button"
-            onClick={handlePasteMeasure}
-            disabled={isPlaying || measureClipboard === null}
-          >
-            Paste Measure
-          </button>
-          <button type="button" onClick={handleCopyRange} disabled={selectedRange === null}>
-            Copy Range
-          </button>
-          <button
-            type="button"
-            onClick={handlePasteRange}
-            disabled={isPlaying || rangeClipboard === null}
-          >
-            Paste Range
-          </button>
-          <span>Measure {selectedMeasureIndex + 1} / {totalMeasures}</span>
-        </div>
-
-        <div className={styles.toolbar}>
-          <div className={styles.durationCard}>
-            <h3>Duration</h3>
-            <div className={styles.durationGroup}>
-            {DURATION_OPTIONS.filter((item) => !item.isRest).map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                className={`${styles.toolButton} ${
-                  !activeIsRestMode && activeInputLen === item.len ? styles.toolActive : ""
-                }`.trim()}
-                onClick={() => handleSelectDuration(item.len, false)}
-              >
-                {item.label}
-              </button>
-            ))}
+        {/* Mini header */}
+        <div className={styles.miniHeader}>
+          <div className={styles.navGroup}>
             <button
               type="button"
-              className={`${styles.toolButton} ${activeIsRestMode ? styles.toolActive : ""}`.trim()}
-              onClick={() => handleSelectDuration(activeInputLen, !activeIsRestMode)}
+              className={styles.navBtn}
+              onClick={handlePrevMeasure}
+              disabled={isPlaying || selectedMeasureIndex <= 0}
             >
-              Rest
+              ◀
             </button>
-            </div>
+            <button
+              type="button"
+              className={styles.navBtn}
+              onClick={handleNextMeasure}
+              disabled={isPlaying || selectedMeasureIndex >= totalMeasures - 1}
+            >
+              ▶
+            </button>
           </div>
 
-          <div className={styles.tempoCard}>
-            <h3>Tempo</h3>
-            <div className={styles.tempoControl}>
-            <span>BPM</span>
-            <button
-              type="button"
-              onClick={() => handleTempoCommit(String(tabData.tempo - 1))}
-            >
-              -
-            </button>
+          <span className={styles.measureInfo}>
+            M{selectedMeasureIndex + 1}/{totalMeasures}
+          </span>
+
+          {tempoEditing ? (
             <input
               type="number"
+              className={styles.tempoInput}
               value={tempoInput}
               min={30}
               max={300}
-              onChange={(event) => setTempoInput(event.target.value)}
-              onBlur={() => handleTempoCommit(tempoInput)}
+              autoFocus
+              onChange={(e) => setTempoInput(e.target.value)}
+              onBlur={() => {
+                handleTempoCommit(tempoInput);
+                setTempoEditing(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleTempoCommit(tempoInput);
+                  setTempoEditing(false);
+                }
+              }}
             />
+          ) : (
             <button
               type="button"
-              onClick={() => handleTempoCommit(String(tabData.tempo + 1))}
+              className={styles.tempoDisplay}
+              onClick={() => setTempoEditing(true)}
             >
-              +
-            </button>
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.controls}>
-          <button type="button" onClick={handleUndo} disabled={!canUndo}>
-            Undo
-          </button>
-          <button type="button" onClick={handleRedo} disabled={!canRedo}>
-            Redo
-          </button>
-          <button type="button" onClick={handlePlay}>
-            {isPlaying ? "Stop" : "Play"}
-          </button>
-          <button type="button" onClick={handleExport}>
-            Export JSON
-          </button>
-          <label className={styles.importLabel}>
-            Import JSON
-            <input type="file" accept="application/json" onChange={handleImportFile} />
-          </label>
-          {activeIsRestMode && (
-            <button type="button" onClick={() => placeRestAtStep(selected.stepIndex)}>
-              Place Rest
+              ♩={tabData.tempo}
             </button>
           )}
+
+          <button
+            type="button"
+            className={`${styles.playBtn} ${isPlaying ? styles.playBtnActive : ""}`}
+            onClick={handlePlay}
+          >
+            {isPlaying ? "■" : "▶"}
+          </button>
+
+          <DropdownMenu items={menuItems} />
         </div>
 
+        {/* Notation: Staff + TAB */}
         <div className={styles.notationFrame}>
-          <div className={styles.notationHeader}>
-            <div>
-              <h2 className={styles.notationTitle}>Standard Notation + TAB (Horizontal)</h2>
-              <p className={styles.measureBadge}>Selected Measure {selectedMeasureIndex + 1} / {totalMeasures}</p>
-            </div>
-            <div className={styles.zoomControl}>
-              <span className={styles.zoomLabel}>{Math.round(notationScale * 100)}%</span>
-              <input
-                type="range"
-                min={String(MIN_SCALE * 100)}
-                max={String(MAX_SCALE * 100)}
-                value={Math.round(notationScale * 100)}
-                onChange={(e) => setNotationScale(Number(e.target.value) / 100)}
-                className={styles.zoomSlider}
-              />
-            </div>
+          <div className={styles.zoomControl}>
+            <span className={styles.zoomLabel}>{Math.round(notationScale * 100)}%</span>
+            <input
+              type="range"
+              min={String(MIN_SCALE * 100)}
+              max={String(MAX_SCALE * 100)}
+              value={Math.round(notationScale * 100)}
+              onChange={(e) => setNotationScale(Number(e.target.value) / 100)}
+              className={styles.zoomSlider}
+            />
           </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
@@ -1560,7 +1502,6 @@ export default function Home() {
                               return;
                             }
                             if (isBlocked) {
-                              // Snap to the owning event's start step
                               const owningStep = findOwningEventStep(events, stepIndex);
                               setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
                               return;
@@ -1585,41 +1526,8 @@ export default function Home() {
           </div>
         </div>
 
-        <div className={styles.editPanel}>
-          <h2>
-            Selected: String {selected.rowIndex + 1} / Step {selected.stepIndex + 1}
-          </h2>
-          <div className={styles.editRow}>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={24}
-              placeholder="fret"
-              value={mobileFretInput}
-              onChange={(event) => setMobileFretInput(event.target.value)}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                const parsed = Number(mobileFretInput);
-                if (Number.isNaN(parsed)) {
-                  return;
-                }
-                commitNoteAtSelected(parsed);
-                setMobileFretInput("");
-              }}
-              disabled={activeIsRestMode}
-            >
-              Set Note
-            </button>
-            <button type="button" onClick={handleDelete}>
-              Delete
-            </button>
-          </div>
-        </div>
-
-        <CollapsibleSection title="Fretboard Input" defaultOpen={true}>
+        {/* Fretboard + Rest */}
+        <div className={styles.inputArea}>
           <FretboardInput
             activeNotes={activeFretboardNotes}
             onFlickCommit={commitFretboardFlick}
@@ -1636,19 +1544,6 @@ export default function Home() {
               R: Tap for quarter rest, flick for other durations
             </span>
           </div>
-        </CollapsibleSection>
-
-        <div className={styles.mobileOnly}>
-        <CollapsibleSection title="Numpad" defaultOpen={false}>
-          <MobileNumpad
-            buffer={numpadBuffer}
-            onDigit={handleDigitInput}
-            onBackspace={handleDelete}
-            onRest={() => placeRestAtStep(selected.stepIndex)}
-            isRestMode={activeIsRestMode}
-            disabled={isPlaying}
-          />
-        </CollapsibleSection>
         </div>
       </main>
     </div>

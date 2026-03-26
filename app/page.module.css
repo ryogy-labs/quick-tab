@@ -2,7 +2,7 @@
   min-height: 100vh;
   background: linear-gradient(160deg, #e9f4ff 0%, #f7fafc 40%, #ecfff6 100%);
   color: #0e1a2b;
-  padding: 20px;
+  padding: 10px;
 }
 
 .main {
@@ -10,194 +10,101 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
-.headerRow h1 {
-  font-size: 28px;
-  line-height: 1.1;
-  margin-bottom: 4px;
-}
+/* ── Mini Header ── */
 
-.headerRow p {
-  color: #355172;
-}
-
-.measureNav {
+.miniHeader {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
-.measureNav button {
-  border: 1px solid #214665;
+.navGroup {
+  display: flex;
+  gap: 4px;
+}
+
+.navBtn {
+  border: 1px solid #a6bed7;
   background: #fff;
-  color: #16324a;
-  padding: 6px 10px;
+  color: #274968;
   border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
+  line-height: 1;
 }
 
-.measureNav button:disabled {
-  opacity: 0.5;
+.navBtn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.measureNav span {
-  font-size: 13px;
-  color: #355172;
-  font-weight: 700;
-}
-
-.toolbar {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.durationCard,
-.tempoCard {
-  border: 1px solid #a5c2dc;
-  background: #ffffffd9;
-  border-radius: 12px;
-  padding: 10px;
-}
-
-.durationCard {
-  flex: 1 1 560px;
-}
-
-.tempoCard {
-  flex: 0 0 auto;
-  min-width: 180px;
-}
-
-.durationCard h3,
-.tempoCard h3 {
-  font-size: 13px;
-  color: #355172;
-  margin-bottom: 8px;
-}
-
-.durationGroup {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.toolButton {
-  border: 1px solid #2f5e85;
-  background: #ffffff;
-  color: #12324c;
-  border-radius: 8px;
-  padding: 7px 12px;
+.measureInfo {
   font-size: 13px;
   font-weight: 700;
-  cursor: pointer;
+  color: #274968;
+  white-space: nowrap;
 }
 
-.toolActive {
-  background: #dff0ff;
-  border-color: #0f5f99;
-  box-shadow: inset 0 0 0 1px #47a8eb;
-}
-
-.tempoControl {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tempoControl span {
-  font-size: 14px;
-  color: #234564;
-  font-weight: 700;
-}
-
-.tempoControl button {
-  border: 1px solid #3b678b;
-  border-radius: 8px;
+.tempoDisplay {
+  border: 1px solid #a6bed7;
   background: #fff;
-  width: 30px;
-  height: 30px;
+  color: #274968;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.tempoControl input {
-  width: 74px;
-  height: 30px;
-  border: 1px solid #6f99bb;
+.tempoInput {
+  width: 64px;
+  border: 1px solid #4ca6e6;
   border-radius: 8px;
-  padding: 4px 8px;
-  font-size: 14px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #274968;
+  outline: none;
 }
 
-.controls {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.controls button,
-.importLabel {
-  border: 1px solid #214665;
+.playBtn {
+  border: 1px solid #a6bed7;
   background: #fff;
-  color: #16324a;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
+  color: #274968;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 16px;
   cursor: pointer;
+  line-height: 1;
 }
 
-.importLabel {
-  position: relative;
-  overflow: hidden;
+.playBtnActive {
+  background: #fff0c6;
+  border-color: #b06d00;
+  color: #8a4d00;
 }
 
-.importLabel input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
+/* ── Notation (Staff + TAB) ── */
 
 .notationFrame {
   border-radius: 12px;
   border: 1px solid #aac4dd;
   background: #ffffffdd;
-  padding: 10px;
-}
-
-.notationHeader {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.notationTitle {
-  font-size: 16px;
-  color: #1e3f5e;
-  margin-bottom: 4px;
-}
-
-.measureBadge {
-  font-size: 12px;
-  color: #355172;
+  padding: 8px;
 }
 
 .zoomControl {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  margin-bottom: 6px;
 }
 
 .zoomLabel {
@@ -229,6 +136,8 @@
   padding: 8px;
   background: #ffffffc0;
 }
+
+/* ── TAB Grid ── */
 
 .grid {
   position: relative;
@@ -345,47 +254,12 @@
   border-left-width: 2px;
 }
 
-.editPanel {
-  border: 1px solid #a6bed7;
-  background: #ffffffcc;
-  border-radius: 12px;
-  padding: 12px;
-}
+/* ── Input Area (Fretboard + Rest) ── */
 
-.editPanel h2 {
-  font-size: 16px;
-  margin-bottom: 8px;
-}
-
-.editPanel p {
-  color: #355172;
-  font-size: 13px;
-  margin-top: 4px;
-}
-
-.editRow {
+.inputArea {
   display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  margin-bottom: 6px;
-}
-
-.editRow input {
-  width: 120px;
-  border: 1px solid #6f99bb;
-  border-radius: 8px;
-  padding: 8px;
-  font-size: 16px;
-}
-
-.editRow button {
-  border: 1px solid #3d6788;
-  background: #ffffff;
-  color: #16324a;
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-weight: 600;
-  cursor: pointer;
+  flex-direction: column;
+  gap: 0;
 }
 
 .restFlickRow {
@@ -396,92 +270,39 @@
   padding: 8px 0;
 }
 
-.mobileOnly {
-  display: none;
-}
-
 .restFlickHint {
   font-size: 13px;
   color: #5a7a96;
 }
 
+/* ── Mobile ── */
+
 @media (max-width: 768px) {
   .page {
-    padding: 10px;
+    padding: 6px;
   }
 
-  .headerRow h1 {
-    font-size: 20px;
-  }
-
-  /* measureNav: ボタンを小さくして折り返しを最小化 */
-  .measureNav {
+  .miniHeader {
     gap: 6px;
-  }
-
-  .measureNav button {
-    padding: 5px 8px;
-    font-size: 12px;
-  }
-
-  /* toolbar: Duration と Tempo を縦積み */
-  .toolbar {
-    gap: 8px;
-  }
-
-  .durationCard {
-    flex: 1 1 100%;
-  }
-
-  .tempoCard {
-    flex: 1 1 100%;
-    min-width: unset;
-  }
-
-  /* controls: Undo/Redo/Play などのボタン */
-  .controls button,
-  .importLabel {
-    font-size: 13px;
-    padding: 7px 10px;
-  }
-
-  /* Duration選択ボタン */
-  .toolButton {
-    font-size: 13px;
-    padding: 7px 10px;
-    touch-action: manipulation;
-  }
-
-  .cellValue {
-    font-size: 32px;
   }
 
   .cell {
     height: 14px;
   }
 
-  .notationFrame {
-    padding: 6px;
-  }
-
-  .notationContent {
-    padding: 4px;
+  .cellValue {
+    font-size: 32px;
   }
 
   .stringLabel {
     font-size: 16px;
   }
 
-  .tempoControl {
-    width: 100%;
-    justify-content: space-between;
+  .notationFrame {
+    padding: 4px;
   }
 
-  .editRow input {
-    width: 94px;
-  }
-
-  .mobileOnly {
-    display: block;
+  .notationContent {
+    padding: 4px;
   }
 }
