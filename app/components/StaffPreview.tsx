@@ -7,10 +7,12 @@ import { OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent, sanitizeEvents
 type StaffPreviewProps = {
   measuresEvents: TabEvent[][];
   currentCursor: { measureIndex: number; stepIndex: number } | null;
-  labelWidth: number;
   stepWidth: number;
   stepUnit: number;
+  measureStartXs: number[];
+  timelineWidth: number;
   showClef?: boolean;
+  showBarLines?: boolean;
 };
 
 type PitchToken = {
@@ -40,14 +42,15 @@ type DurationToken = "w" | "h" | "q" | "8" | "16";
 type SupportedLen = 1 | 2 | 4 | 8 | 16;
 
 const STAFF_LINE_GAP = 12;
-const STAFF_TOP = 76;
+export const STAFF_TOP = 76;
 const STAFF_LINES = 5;
 const NOTE_RADIUS_X = 6;
 const NOTE_RADIUS_Y = 4.4;
 const STEM_HEIGHT = 30;
 
-const STAFF_BOTTOM = STAFF_TOP + STAFF_LINE_GAP * (STAFF_LINES - 1);
+export const STAFF_BOTTOM = STAFF_TOP + STAFF_LINE_GAP * (STAFF_LINES - 1);
 const STAFF_CENTER_Y = (STAFF_TOP + STAFF_BOTTOM) / 2;
+export const STAFF_VIEWBOX_HEIGHT = 175;
 
 // E4 is the bottom line on treble clef.
 const E4_DIATONIC_INDEX = 2 + 7 * 4;
@@ -190,16 +193,15 @@ const RestSixteenth = ({ x, y, fill }: { x: number; y: number; fill: string }) =
 
 const buildRenderEvents = (
   measuresEvents: TabEvent[][],
-  labelWidth: number,
+  measureStartXs: number[],
   stepWidth: number,
-  stepUnit: number,
-  measureWidth: number
+  stepUnit: number
 ): EventRender[] => {
   return measuresEvents.flatMap((events, measureIndex) =>
     sanitizeEvents(events, STEPS_PER_MEASURE)
       .map((event) => {
-        const x =
-          labelWidth + measureWidth * measureIndex + stepWidth * (event.step / stepUnit + 0.5);
+        const measureStartX = measureStartXs[measureIndex] ?? measureStartXs[0] ?? 0;
+        const x = measureStartX + stepWidth * (event.step / stepUnit + 0.5);
 
         if ("rest" in event && event.rest) {
           return {
@@ -264,20 +266,23 @@ const ledgerLineYs = (y: number): number[] => {
 export default function StaffPreview({
   measuresEvents,
   currentCursor,
-  labelWidth,
   stepWidth,
   stepUnit,
+  measureStartXs,
+  timelineWidth,
   showClef = true,
+  showBarLines = true,
 }: StaffPreviewProps) {
   const displaySlots = STEPS_PER_MEASURE / stepUnit;
   const measureCount = Math.max(1, measuresEvents.length);
   const measureWidth = stepWidth * displaySlots;
-  const width = labelWidth + measureWidth * measureCount;
-  const viewBoxHeight = 175;
+  const width = timelineWidth;
+  const viewBoxHeight = STAFF_VIEWBOX_HEIGHT;
+  const labelWidth = measureStartXs[0] ?? 0;
 
   const renderEvents = useMemo(
-    () => buildRenderEvents(measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth),
-    [measuresEvents, labelWidth, stepWidth, stepUnit, measureWidth]
+    () => buildRenderEvents(measuresEvents, measureStartXs, stepWidth, stepUnit),
+    [measuresEvents, measureStartXs, stepWidth, stepUnit]
   );
 
   const activeSlot =
@@ -297,7 +302,7 @@ export default function StaffPreview({
           activeSlot.slotIndex >= 0 &&
           activeSlot.slotIndex < displaySlots && (
           <rect
-            x={labelWidth + measureWidth * activeSlot.measureIndex + stepWidth * activeSlot.slotIndex}
+            x={(measureStartXs[activeSlot.measureIndex] ?? labelWidth) + stepWidth * activeSlot.slotIndex}
             y={10}
             width={stepWidth}
             height={viewBoxHeight - 20}
@@ -320,20 +325,21 @@ export default function StaffPreview({
           );
         })}
 
-        {Array.from({ length: measureCount + 1 }, (_, measureIndex) => {
-          const x = labelWidth + measureWidth * measureIndex;
-          return (
-            <line
-              key={`bar-line-${measureIndex}`}
-              x1={x}
-              x2={x}
-              y1={STAFF_TOP}
-              y2={STAFF_BOTTOM}
-              stroke="#1c2f42"
-              strokeWidth={2}
-            />
-          );
-        })}
+        {showBarLines &&
+          Array.from({ length: measureCount + 1 }, (_, measureIndex) => {
+            const x = measureStartXs[measureIndex] ?? width;
+            return (
+              <line
+                key={`bar-line-${measureIndex}`}
+                x1={x}
+                x2={x}
+                y1={STAFF_TOP}
+                y2={STAFF_BOTTOM}
+                stroke="#1c2f42"
+                strokeWidth={2}
+              />
+            );
+          })}
 
         {showClef && (
           <text x={labelWidth * 0.45} y={STAFF_BOTTOM + 10} fontSize={120} textAnchor="middle" fill="#111">

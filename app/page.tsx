@@ -3,6 +3,7 @@
 import { ChangeEvent, CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
+import { STAFF_BOTTOM, STAFF_TOP, STAFF_VIEWBOX_HEIGHT } from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
@@ -26,7 +27,6 @@ import {
   copyMeasure,
   createEmptyTabDataV2,
   deleteMeasure,
-  deleteEventAtStep,
   deleteSpecificNoteAtStep,
   deleteCellOrRestAtStep,
   duplicateMeasure,
@@ -64,26 +64,19 @@ type PlayCursor = {
   stepIndex: number;
 };
 
-type TimelineLayout = {
-  labelWidth: number;
-  stepWidth: number;
-  stepUnit: number;
-  stepsPerMeasure: number;
-};
-
 type CursorAdvanceResult = {
   nextData: TabDataV2;
   nextSelected: CellPosition;
   didAppendMeasure: boolean;
 };
 
+type StaffBarMetrics = {
+  top: number;
+  height: number;
+};
+
 const toGlobalStep = (cursor: PlayCursor): number =>
   cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
-
-const getMeasureStartX = (measureIndex: number, layout: TimelineLayout): number => {
-  const measureWidth = (layout.stepsPerMeasure / layout.stepUnit) * layout.stepWidth;
-  return layout.labelWidth + measureIndex * measureWidth;
-};
 
 const isEditableTarget = (target: EventTarget | null): boolean => {
   if (!(target instanceof HTMLElement)) {
@@ -164,6 +157,7 @@ export default function Home() {
   const [numpadBuffer, setNumpadBuffer] = useState<string>("");
   const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
   const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
+  const [staffBarMetrics, setStaffBarMetrics] = useState<StaffBarMetrics | null>(null);
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
@@ -206,6 +200,7 @@ export default function Home() {
   const intervalRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
+  const staffSectionRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
   const didDragRangeRef = useRef(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -801,9 +796,24 @@ export default function Home() {
   };
 
   const handleNextMeasure = () => {
-    if (isPlaying || selectedMeasureIndex >= totalMeasures - 1) {
+    if (isPlaying) {
       return;
     }
+
+    if (selectedMeasureIndex >= totalMeasures - 1) {
+      commitTabData({
+        ...tabData,
+        measures: [...tabData.measures, { events: [] }],
+      });
+      setSelected((prev) => ({
+        ...prev,
+        measureIndex: totalMeasures,
+        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+        stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+      }));
+      return;
+    }
+
     setSelected((prev) => ({
       ...prev,
       measureIndex: Math.min(totalMeasures - 1, prev.measureIndex + 1),
@@ -942,7 +952,10 @@ export default function Home() {
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
-    const nextEvents = deleteEventAtStep(measureEvents, owningStep);
+    const nextEvents = deleteCellOrRestAtStep(measureEvents, {
+      ...selected,
+      stepIndex: owningStep,
+    });
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
 
@@ -1199,6 +1212,12 @@ export default function Home() {
     [tabData.measures]
   );
   const totalDisplaySlots = displaySlots * totalMeasures;
+  const measureSlotWidth = stepWidth * displaySlots;
+  const measureStartXs = useMemo(
+    () => Array.from({ length: totalMeasures + 1 }, (_, index) => tabLabelWidth + index * measureSlotWidth),
+    [measureSlotWidth, tabLabelWidth, totalMeasures]
+  );
+  const timelineWidth = tabLabelWidth + measureSlotWidth * totalMeasures;
   const currentGlobalStep = playCursor ? toGlobalStep(playCursor) : null;
   const currentPlaybackMeasureIndex =
     currentGlobalStep === null
@@ -1227,16 +1246,42 @@ export default function Home() {
       return;
     }
 
-    const measureStartX = getMeasureStartX(currentPlaybackMeasureIndex, {
-      labelWidth: tabLabelWidth,
-      stepWidth,
-      stepUnit: displayUnit,
-      stepsPerMeasure: STEPS_PER_MEASURE,
-    });
+    const measureStartX = measureStartXs[currentPlaybackMeasureIndex] ?? measureStartXs[0] ?? 0;
     const nextLeft = Math.max(0, measureStartX - MEASURE_SCROLL_PADDING);
     container.scrollTo({ left: nextLeft, behavior: "auto" });
     prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
-  }, [currentPlaybackMeasureIndex, displayUnit, isPlaying, stepWidth]);
+  }, [currentPlaybackMeasureIndex, isPlaying, measureStartXs]);
+
+  useEffect(() => {
+    const staffSectionEl = staffSectionRef.current;
+    if (!staffSectionEl) {
+      return;
+    }
+
+    const updateMetrics = () => {
+      // notationContent uses CSS zoom, so getBoundingClientRect() returns already-scaled pixels.
+      // The overlay lives inside the same zoomed subtree, therefore its top/height must be
+      // computed from unscaled layout units to avoid double-scaling.
+      const layoutHeight = staffSectionEl.offsetHeight;
+      const scale = layoutHeight / STAFF_VIEWBOX_HEIGHT;
+      const lineHeight = Math.max(0, (STAFF_BOTTOM - STAFF_TOP) * scale - 2);
+      setStaffBarMetrics({
+        top: STAFF_TOP * scale,
+        height: lineHeight,
+      });
+    };
+
+    updateMetrics();
+
+    const resizeObserver = new ResizeObserver(updateMetrics);
+    resizeObserver.observe(staffSectionEl);
+    window.addEventListener("resize", updateMetrics);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateMetrics);
+    };
+  }, [notationScale, totalMeasures, stepWidth, displayUnit]);
 
   // Pinch-to-zoom on notation area
   const pinchRef = useRef<{ initialDist: number; initialScale: number } | null>(null);
@@ -1360,7 +1405,7 @@ export default function Home() {
               type="button"
               className={styles.navBtn}
               onClick={handleNextMeasure}
-              disabled={isPlaying || selectedMeasureIndex >= totalMeasures - 1}
+              disabled={isPlaying}
             >
               ▶
             </button>
@@ -1408,6 +1453,17 @@ export default function Home() {
             {isPlaying ? "■" : "▶"}
           </button>
 
+          <button
+            type="button"
+            className={styles.deleteBtn}
+            onClick={handleDelete}
+            disabled={isPlaying}
+            aria-label="Delete current note or selection"
+            title="Delete"
+          >
+            ×
+          </button>
+
           <DropdownMenu items={menuItems} />
         </div>
 
@@ -1426,27 +1482,47 @@ export default function Home() {
           </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
-              <StaffPreview
-                measuresEvents={measuresEvents}
-                currentCursor={playCursor}
-                labelWidth={tabLabelWidth}
-                stepWidth={stepWidth}
-                stepUnit={displayUnit}
-              />
-              <div className={styles.grid} ref={gridRef}>
-                {/* Bar lines spanning full grid height */}
-                {Array.from({ length: totalMeasures + 1 }, (_, i) => {
-                  const isEnd = i === totalMeasures;
-                  const measureSlotWidth = stepWidth * displaySlots;
-                  const left = tabLabelWidth + i * measureSlotWidth;
-                  return (
-                    <div
-                      key={`barline-${i}`}
-                      className={`${styles.barLine} ${isEnd ? styles.barLineEnd : ""}`}
-                      style={{ left: `${left}px` }}
-                    />
-                  );
-                })}
+              <div ref={staffSectionRef} className={styles.staffSection}>
+                <div className={styles.measureBarOverlay} aria-hidden="true">
+                  {measureStartXs.map((left, i) => {
+                    const isEnd = i === totalMeasures;
+                    return (
+                      <div
+                        key={`staff-barline-${i}`}
+                        className={`${styles.measureBarLine} ${isEnd ? styles.measureBarLineEnd : ""}`}
+                        style={{
+                          left: `${left}px`,
+                          top: staffBarMetrics ? `${staffBarMetrics.top}px` : "0",
+                          height: staffBarMetrics ? `${staffBarMetrics.height}px` : "0",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                <StaffPreview
+                  measuresEvents={measuresEvents}
+                  currentCursor={playCursor}
+                  stepWidth={stepWidth}
+                  stepUnit={displayUnit}
+                  measureStartXs={measureStartXs}
+                  timelineWidth={timelineWidth}
+                  showBarLines={false}
+                />
+              </div>
+              <div className={styles.gridSection}>
+                <div className={styles.measureBarOverlay} aria-hidden="true">
+                  {measureStartXs.map((left, i) => {
+                    const isEnd = i === totalMeasures;
+                    return (
+                      <div
+                        key={`grid-barline-${i}`}
+                        className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${isEnd ? styles.measureBarLineEnd : ""}`}
+                        style={{ left: `${left}px` }}
+                      />
+                    );
+                  })}
+                </div>
+                <div className={styles.grid} ref={gridRef}>
                 {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
                   <div key={`row-${rowIndex}`} className={styles.row}>
                     <div className={styles.stringLabel}>
@@ -1521,6 +1597,7 @@ export default function Home() {
                     })}
                   </div>
                 ))}
+                </div>
               </div>
             </div>
           </div>
