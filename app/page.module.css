@@ -257,8 +257,12 @@
 
 .cell {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: 36px;
   border: none;
+  padding: 0;
   background: transparent;
   color: #12263b;
   font-weight: 700;
@@ -279,9 +283,10 @@
 .cellValue {
   position: relative;
   z-index: 2;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 12px;
-  transform: translateY(-1px);
   padding: 0 2px;
   line-height: 1;
   font-size: 32px;
