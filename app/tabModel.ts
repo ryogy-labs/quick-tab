@@ -131,7 +131,7 @@ export const getMeasureOccupiedSteps = (
   events: TabEvent[],
   stepsPerMeasure = STEPS_PER_MEASURE
 ): number =>
-  sanitizeEvents(events, stepsPerMeasure).reduce(
+  sanitizeEvents(events, stepsPerMeasure, true).reduce(
     (sum, event) => sum + getEventOccupiedSteps(event),
     0
   );
@@ -159,11 +159,18 @@ export const createEmptyTabDataV3 = (): TabDataV3 => ({
   measures: [{ events: [] }],
 });
 
-export const sanitizeTabDataV3 = (data: TabDataV3): TabDataV3 => {
+export const sanitizeTabDataV3 = (
+  data: TabDataV3,
+  allowOverflow = false
+): TabDataV3 => {
   const sanitizedMeasures =
     data.measures.length > 0
       ? data.measures.map((measure) => ({
-          events: sanitizeEvents(measure?.events ?? [], STEPS_PER_MEASURE),
+          events: sanitizeEvents(
+            measure?.events ?? [],
+            STEPS_PER_MEASURE,
+            allowOverflow
+          ),
         }))
       : [{ events: [] }];
   return {
@@ -426,9 +433,22 @@ export const rangesOverlap = (
   return startA < endB && startB < endA;
 };
 
-const sanitizeEvent = (event: TabEvent, stepsPerMeasure: number): TabEvent | null => {
-  const step = clampStepByMeasure(event.step, stepsPerMeasure);
-  const len = clampLenByMeasure(event.len, step, stepsPerMeasure);
+const sanitizeEvent = (
+  event: TabEvent,
+  stepsPerMeasure: number,
+  allowOverflow: boolean
+): TabEvent | null => {
+  const rawStep = Math.trunc(event.step);
+  if (allowOverflow && rawStep < 0) {
+    return null;
+  }
+
+  const step = allowOverflow
+    ? Math.max(0, rawStep)
+    : clampStepByMeasure(rawStep, stepsPerMeasure);
+  const len = allowOverflow
+    ? clampInt(event.len, 1, Math.max(1, stepsPerMeasure))
+    : clampLenByMeasure(event.len, step, stepsPerMeasure);
 
   // Preserve dot/triplet but strip invalid combo (both set)
   const dot = event.dot && !event.triplet ? true : undefined;
@@ -448,11 +468,13 @@ const sanitizeEvent = (event: TabEvent, stepsPerMeasure: number): TabEvent | nul
 
 export const sanitizeEvents = (
   events: TabEvent[],
-  stepsPerMeasure = STEPS_PER_MEASURE
+  stepsPerMeasure = STEPS_PER_MEASURE,
+  allowOverflow = false
 ): TabEvent[] => {
   const sorted = events
-    .map((event) => sanitizeEvent(event, stepsPerMeasure))
+    .map((event) => sanitizeEvent(event, stepsPerMeasure, allowOverflow))
     .filter((event): event is TabEvent => event !== null)
+    .filter((event) => allowOverflow || event.step < stepsPerMeasure)
     .sort((a, b) => a.step - b.step);
 
   const accepted: TabEvent[] = [];
@@ -470,6 +492,34 @@ export const sanitizeEvents = (
   });
 
   return accepted;
+};
+
+export const shiftEventsFromStep = (
+  events: TabEvent[],
+  fromStep: number,
+  deltaSteps: number,
+  stepsPerMeasure = STEPS_PER_MEASURE
+): TabEvent[] => {
+  if (deltaSteps === 0) {
+    return sanitizeEvents(events, stepsPerMeasure, true);
+  }
+
+  return sanitizeEvents(
+    events
+      .map((event) => {
+        if (event.step < fromStep) {
+          return event;
+        }
+        const newStep = event.step + deltaSteps;
+        if (newStep < 0) {
+          return null;
+        }
+        return { ...event, step: newStep };
+      })
+      .filter((event): event is TabEvent => event !== null),
+    stepsPerMeasure,
+    true
+  );
 };
 
 export const canPlaceEvent = (
@@ -637,10 +687,10 @@ export const deleteCellOrRestAtStep = (
   const existing = findEventAtStep(events, safeStep);
 
   if (!existing) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE);
+    return sanitizeEvents(events, STEPS_PER_MEASURE, true);
   }
 
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     return next;
@@ -652,7 +702,7 @@ export const deleteCellOrRestAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
-  return sanitizeEvents(next, STEPS_PER_MEASURE);
+  return sanitizeEvents(next, STEPS_PER_MEASURE, true);
 };
 
 export const deleteEventAtStep = (
@@ -660,7 +710,7 @@ export const deleteEventAtStep = (
   stepIndex: number
 ): TabEvent[] => {
   const safeStep = clampStep(stepIndex);
-  return sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+  return sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
 };
 
 export const deleteSpecificNoteAtStep = (
@@ -675,10 +725,10 @@ export const deleteSpecificNoteAtStep = (
   const existing = findEventAtStep(events, safeStep);
 
   if (!existing) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE);
+    return sanitizeEvents(events, STEPS_PER_MEASURE, true);
   }
 
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     return next;
@@ -692,7 +742,7 @@ export const deleteSpecificNoteAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
-  return sanitizeEvents(next, STEPS_PER_MEASURE);
+  return sanitizeEvents(next, STEPS_PER_MEASURE, true);
 };
 
 export const moveStepByLen = (stepIndex: number, len: number): number => {
@@ -710,7 +760,10 @@ type RawTabData = {
   measures?: unknown;
 };
 
-export const normalizeToTabDataV3 = (raw: unknown): TabDataV3 | null => {
+export const normalizeToTabDataV3 = (
+  raw: unknown,
+  allowOverflow = false
+): TabDataV3 | null => {
   if (!raw || typeof raw !== "object") {
     return null;
   }
@@ -729,7 +782,13 @@ export const normalizeToTabDataV3 = (raw: unknown): TabDataV3 | null => {
         if (!Array.isArray(typed.events)) {
           return null;
         }
-        return { events: sanitizeEvents(typed.events as TabEvent[], STEPS_PER_MEASURE) };
+        return {
+          events: sanitizeEvents(
+            typed.events as TabEvent[],
+            STEPS_PER_MEASURE,
+            allowOverflow
+          ),
+        };
       })
       .filter((measure): measure is TabMeasureV3 => measure !== null);
 
@@ -747,7 +806,7 @@ export const normalizeToTabDataV3 = (raw: unknown): TabDataV3 | null => {
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
       measures: normalizedMeasures,
-    });
+    }, allowOverflow);
   }
 
   if (candidate.version === 2) {

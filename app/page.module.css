@@ -135,6 +135,36 @@
   accent-color: #4ca6e6;
 }
 
+.menuSectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5a7a96;
+  margin-bottom: 6px;
+}
+
+.modeToggleRow {
+  display: flex;
+  gap: 6px;
+}
+
+.modeToggleButton {
+  flex: 1;
+  border: 1px solid #a6bed7;
+  border-radius: 8px;
+  background: #fff;
+  color: #274968;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modeToggleActive {
+  background: #d8ecff;
+  border-color: #4ca6e6;
+  color: #123a57;
+}
+
 .notationScroll {
   overflow-x: auto;
 }
