@@ -181,6 +181,10 @@
   border-left-width: 2px;
 }
 
+.measureBarLine.measureOverflow {
+  border-left-color: #d0021b;
+}
+
 /* ── TAB Grid ── */
 
 .grid {
@@ -282,6 +286,10 @@
 
 .cell:disabled {
   opacity: 1;
+}
+
+.cell.measureOverflow {
+  background: linear-gradient(0deg, #ffd5d555, #ffd5d555);
 }
 
 /* ── Input Area (Fretboard + Rest) ── */

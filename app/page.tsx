@@ -36,8 +36,10 @@ import {
   findEventAtStep,
   findOwningEventStep,
   getCellFret,
+  getEventOccupiedSteps,
   getPlaybackDuration,
   insertMeasure,
+  isMeasureOverflowing,
   isStepBlockedForNewStart,
   isStepInRange,
   normalizeToTabDataV3,
@@ -270,6 +272,15 @@ export default function Home() {
         return set;
       }),
     [tabData.measures, visibleSteps]
+  );
+  const overflowingMeasureSet = useMemo(
+    () =>
+      new Set(
+        tabData.measures
+          .map((measure, index) => (isMeasureOverflowing(measure.events) ? index : -1))
+          .filter((index) => index >= 0)
+      ),
+    [tabData.measures]
   );
 
   const getNearestSelectableStep = (targetStep: number): number => {
@@ -768,6 +779,8 @@ export default function Home() {
     const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
     const tempo = tabData.tempo;
     const stepDurationMs = (60_000 / tempo) / (STEPS_PER_MEASURE / 4);
+    const measuresForPlayback = tabData.measures.map((measure) => measure.events);
+    const overflowingMeasuresForPlayback = new Set(overflowingMeasureSet);
 
     setIsPlaying(true);
     const initialCursor = {
@@ -790,13 +803,34 @@ export default function Home() {
         return;
       }
 
+      let cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
+      let cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
+
+      if (overflowingMeasuresForPlayback.has(cursorMeasureIndex)) {
+        const eventsForMeasure = measuresForPlayback[cursorMeasureIndex] ?? [];
+        const occupied = eventsForMeasure
+          .filter((event) => event.step <= cursorStepIndex)
+          .reduce((sum, event) => sum + getEventOccupiedSteps(event), 0);
+
+        if (occupied >= STEPS_PER_MEASURE) {
+          linearIndex = (cursorMeasureIndex + 1) * STEPS_PER_MEASURE;
+          if (linearIndex >= endLinearExclusive) {
+            stopPlayback();
+            setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
+            return;
+          }
+          cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
+          cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
+        }
+      }
+
       const cursor = {
-        measureIndex: Math.floor(linearIndex / STEPS_PER_MEASURE),
-        stepIndex: linearIndex % STEPS_PER_MEASURE,
+        measureIndex: cursorMeasureIndex,
+        stepIndex: cursorStepIndex,
       };
       setPlayCursor(cursor);
 
-      const eventsForMeasure = getMeasureEvents(tabData, cursor.measureIndex);
+      const eventsForMeasure = measuresForPlayback[cursor.measureIndex] ?? [];
       const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
       if (current) {
         void playEvent(current, tempo);
@@ -1507,10 +1541,13 @@ export default function Home() {
                 <div className={styles.measureBarOverlay} aria-hidden="true">
                   {measureStartXs.map((left, i) => {
                     const isEnd = i === totalMeasures;
+                    const boundaryMeasureIndex = isEnd ? totalMeasures - 1 : i;
                     return (
                       <div
                         key={`staff-barline-${i}`}
-                        className={`${styles.measureBarLine} ${isEnd ? styles.measureBarLineEnd : ""}`}
+                        className={`${styles.measureBarLine} ${
+                          overflowingMeasureSet.has(boundaryMeasureIndex) ? styles.measureOverflow : ""
+                        } ${isEnd ? styles.measureBarLineEnd : ""}`}
                         style={{
                           left: `${left}px`,
                           top: staffBarMetrics ? `${staffBarMetrics.top}px` : "0",
@@ -1527,6 +1564,7 @@ export default function Home() {
                   stepUnit={displayUnit}
                   measureStartXs={measureStartXs}
                   timelineWidth={timelineWidth}
+                  overflowingMeasures={overflowingMeasureSet}
                   showBarLines={false}
                 />
               </div>
@@ -1534,10 +1572,13 @@ export default function Home() {
                 <div className={styles.measureBarOverlay} aria-hidden="true">
                   {measureStartXs.map((left, i) => {
                     const isEnd = i === totalMeasures;
+                    const boundaryMeasureIndex = isEnd ? totalMeasures - 1 : i;
                     return (
                       <div
                         key={`grid-barline-${i}`}
-                        className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${isEnd ? styles.measureBarLineEnd : ""}`}
+                        className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${
+                          overflowingMeasureSet.has(boundaryMeasureIndex) ? styles.measureOverflow : ""
+                        } ${isEnd ? styles.measureBarLineEnd : ""}`}
                         style={{ left: `${left}px` }}
                       />
                     );
@@ -1571,6 +1612,7 @@ export default function Home() {
                           ? isStepInRange(selectedRange, measureIndex, stepIndex)
                           : isDurationPreviewStep(measureIndex, stepIndex);
                       const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
+                      const isOverflowingMeasure = overflowingMeasureSet.has(measureIndex);
                       return (
                         <button
                           key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
@@ -1583,6 +1625,7 @@ export default function Home() {
                             isDraggingRange ? styles.dragSelecting : ""
                           } ${isCurrentStep ? styles.playing : ""} ${
                             isBlocked ? styles.blocked : ""
+                          } ${isOverflowingMeasure ? styles.measureOverflow : ""
                           }`.trim()}
                           onMouseDown={(event) => {
                             event.preventDefault();
