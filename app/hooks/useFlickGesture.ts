@@ -21,7 +21,7 @@ type UseFlickGestureOptions = {
   disabled?: boolean;
 };
 
-const DEFAULT_RESULT: FlickResult = { len: 4, modifier: "normal" };
+const DEFAULT_RESULT: FlickResult = { len: 24, modifier: "normal" };
 const DEFAULT_STATE: FlickState = {
   isActive: false,
   currentResult: DEFAULT_RESULT,
@@ -36,7 +36,7 @@ const computeFlickResult = (
   verticalLevel: number,
   horizontalLevel: number
 ): FlickResult => {
-  const len = FLICK_DURATION_MAP[verticalLevel] ?? 4;
+  const len = FLICK_DURATION_MAP[verticalLevel] ?? 24;
   const modifier: DurationModifier =
     horizontalLevel > 0 ? "dotted" : horizontalLevel < 0 ? "triplet" : "normal";
   return { len, modifier };

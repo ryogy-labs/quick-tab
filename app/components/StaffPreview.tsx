@@ -39,7 +39,7 @@ type EventRender = {
 };
 
 type DurationToken = "w" | "h" | "q" | "8" | "16";
-type SupportedLen = 1 | 2 | 4 | 8 | 16;
+type SupportedLen = 6 | 12 | 24 | 48 | 96;
 
 const STAFF_LINE_GAP = 12;
 export const STAFF_TOP = 76;
@@ -110,14 +110,14 @@ const midiToStaffY = (midi: number): { y: number; accidental: "#" | "" } => {
 };
 
 const DURATIONS_BY_LEN: Record<SupportedLen, DurationToken> = {
-  1: "16",
-  2: "8",
-  4: "q",
-  8: "h",
-  16: "w",
+  6: "16",
+  12: "8",
+  24: "q",
+  48: "h",
+  96: "w",
 };
 
-const SUPPORTED_LENS: SupportedLen[] = [1, 2, 4, 8, 16];
+const SUPPORTED_LENS: SupportedLen[] = [6, 12, 24, 48, 96];
 
 export const lenToDuration = (len: number): DurationToken | null => {
   if (len in DURATIONS_BY_LEN) {

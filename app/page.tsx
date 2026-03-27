@@ -12,20 +12,21 @@ import {
 
   DurationModifier,
   OPEN_STRING_MIDI_BY_STRING,
+  SIXTEENTH_STEPS,
   STEPS_PER_MEASURE,
   StepRangeClipboard,
   StepRangePoint,
   StepRangeSelection,
   STRINGS_COUNT,
   TUNING,
-  TabDataV2,
+  TabDataV3,
   TabEvent,
-  TabMeasureV2,
+  TabMeasureV3,
   clampFret,
   clampTempo,
   canPlaceEvent,
   copyMeasure,
-  createEmptyTabDataV2,
+  createEmptyTabDataV3,
   deleteMeasure,
   deleteSpecificNoteAtStep,
   deleteCellOrRestAtStep,
@@ -39,18 +40,20 @@ import {
   insertMeasure,
   isStepBlockedForNewStart,
   isStepInRange,
-  normalizeToTabDataV2,
+  normalizeToTabDataV3,
   normalizeStepRange,
   pasteMeasure,
   pasteRangeClipboardIntoMeasure,
-  sanitizeTabDataV2,
+  sanitizeTabDataV3,
   toFrequency,
   updateEventLengthAtStep,
   upsertNoteAtCell,
   upsertRestAtStep,
 } from "./tabModel";
 
-const STORAGE_KEY = "quick-tab:mvp:v2";
+const STORAGE_KEY = "quick-tab:mvp:v3";
+const LEGACY_STORAGE_KEY_V2 = "quick-tab:mvp:v2";
+const LEGACY_STORAGE_KEY_V1 = "quick-tab:mvp:v1";
 const TAB_LABEL_WIDTH = 92;
 const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
@@ -65,7 +68,7 @@ type PlayCursor = {
 };
 
 type CursorAdvanceResult = {
-  nextData: TabDataV2;
+  nextData: TabDataV3;
   nextSelected: CellPosition;
   didAppendMeasure: boolean;
 };
@@ -90,13 +93,13 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
   );
 };
 
-const appendEmptyMeasure = (data: TabDataV2): TabDataV2 => ({
+const appendEmptyMeasure = (data: TabDataV3): TabDataV3 => ({
   ...data,
   measures: [...data.measures, { events: [] }],
 });
 
 const getNextCursorPositionWithAutoAppend = (
-  data: TabDataV2,
+  data: TabDataV3,
   selected: CellPosition,
   moveAmount: number,
   isPlaying: boolean
@@ -145,17 +148,17 @@ const getNextCursorPositionWithAutoAppend = (
 };
 
 export default function Home() {
-  const [tabData, setTabData] = useState<TabDataV2>(createEmptyTabDataV2);
+  const [tabData, setTabData] = useState<TabDataV3>(createEmptyTabDataV3);
   const [selected, setSelected] = useState<CellPosition>({
     measureIndex: 0,
     rowIndex: 5,
     stepIndex: 0,
   });
-  const [inputLen, setInputLen] = useState<number>(1);
+  const [inputLen, setInputLen] = useState<number>(SIXTEENTH_STEPS);
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
   const [numpadBuffer, setNumpadBuffer] = useState<string>("");
-  const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV2 | null>(null);
+  const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV3 | null>(null);
   const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
   const [staffBarMetrics, setStaffBarMetrics] = useState<StaffBarMetrics | null>(null);
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
@@ -177,7 +180,7 @@ export default function Home() {
 
   const tabLabelWidth = isMobile ? TAB_LABEL_WIDTH_MOBILE : TAB_LABEL_WIDTH;
   const tabSlotWidth = isMobile ? TAB_SLOT_WIDTH_MOBILE : TAB_SLOT_WIDTH;
-  const tabMeasureWidth = tabSlotWidth * STEPS_PER_MEASURE;
+  const tabMeasureWidth = tabSlotWidth * 16;
 
   const [notationScale, setNotationScale] = useState(1);
   const notationScaleRef = useRef(1);
@@ -204,8 +207,8 @@ export default function Home() {
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
   const didDragRangeRef = useRef(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const undoStackRef = useRef<TabDataV2[]>([]);
-  const redoStackRef = useRef<TabDataV2[]>([]);
+  const undoStackRef = useRef<TabDataV3[]>([]);
+  const redoStackRef = useRef<TabDataV3[]>([]);
 
   const selectedMeasureIndex = Math.max(
     0,
@@ -225,13 +228,17 @@ export default function Home() {
   const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
     const localMin = measure.events.reduce(
       (min, event) => Math.min(min, Math.max(1, event.len)),
-      16
+      STEPS_PER_MEASURE
     );
     return Math.min(globalMin, localMin);
-  }, 16);
-  const shouldRenderEveryStep = selectedRange !== null || activeInputLen > 1;
+  }, STEPS_PER_MEASURE);
+  const shouldRenderEveryStep =
+    selectedRange !== null || activeInputLen > SIXTEENTH_STEPS;
   const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
-  const displayUnit = shouldRenderEveryStep || effectiveMinLen === 1 ? 1 : 2;
+  const displayUnit =
+    shouldRenderEveryStep || effectiveMinLen <= SIXTEENTH_STEPS
+      ? SIXTEENTH_STEPS
+      : SIXTEENTH_STEPS * 2;
   const displaySlots = STEPS_PER_MEASURE / displayUnit;
   const stepWidth = tabMeasureWidth / displaySlots;
   const visibleSteps = useMemo(
@@ -275,14 +282,14 @@ export default function Home() {
     );
   };
 
-  const getMeasureEvents = (data: TabDataV2, measureIndex: number): TabEvent[] =>
+  const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
     data.measures.at(measureIndex)?.events ?? [];
 
   const updateMeasureEvents = (
-    data: TabDataV2,
+    data: TabDataV3,
     measureIndex: number,
     nextEvents: TabEvent[]
-  ): TabDataV2 => {
+  ): TabDataV3 => {
     const safeIndex = Math.max(0, measureIndex);
     const measures = [...data.measures];
     while (measures.length <= safeIndex) {
@@ -301,7 +308,7 @@ export default function Home() {
     }
   };
 
-  const commitTabData = (nextData: TabDataV2) => {
+  const commitTabData = (nextData: TabDataV3) => {
     undoStackRef.current = [...undoStackRef.current.slice(-49), tabData];
     redoStackRef.current = [];
     setCanUndo(true);
@@ -590,9 +597,9 @@ export default function Home() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        const normalized = normalizeToTabDataV2(parsed);
+        const normalized = normalizeToTabDataV3(parsed);
         if (normalized) {
-          setTabData(sanitizeTabDataV2(normalized));
+          setTabData(sanitizeTabDataV3(normalized));
         }
       } catch {
         // ignore
@@ -600,16 +607,30 @@ export default function Home() {
       return;
     }
 
-    const legacy = localStorage.getItem("quick-tab:mvp:v1");
-    if (!legacy) {
+    const legacyV2 = localStorage.getItem(LEGACY_STORAGE_KEY_V2);
+    if (legacyV2) {
+      try {
+        const parsed = JSON.parse(legacyV2);
+        const normalized = normalizeToTabDataV3(parsed);
+        if (normalized) {
+          setTabData(sanitizeTabDataV3(normalized));
+        }
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    const legacyV1 = localStorage.getItem(LEGACY_STORAGE_KEY_V1);
+    if (!legacyV1) {
       return;
     }
 
     try {
-      const parsed = JSON.parse(legacy);
-      const normalized = normalizeToTabDataV2(parsed);
+      const parsed = JSON.parse(legacyV1);
+      const normalized = normalizeToTabDataV3(parsed);
       if (normalized) {
-        setTabData(sanitizeTabDataV2(normalized));
+        setTabData(sanitizeTabDataV3(normalized));
       }
     } catch {
       // ignore
@@ -676,7 +697,7 @@ export default function Home() {
     };
   }, [stopPlayback]);
 
-  const playNotePreview = (data: TabDataV2, measureIndex: number, stepIndex: number) => {
+  const playNotePreview = (data: TabDataV3, measureIndex: number, stepIndex: number) => {
     const evts = getMeasureEvents(data, measureIndex);
     const evt = findEventAtStep(evts, stepIndex);
     if (evt) {
@@ -698,7 +719,7 @@ export default function Home() {
       await context.resume();
     }
 
-    const stepSec = (60 / tempo) / 4;
+    const stepSec = (60 / tempo) / (STEPS_PER_MEASURE / 4);
     const durationSec = stepSec * getPlaybackDuration(event);
     const now = context.currentTime;
 
@@ -746,7 +767,7 @@ export default function Home() {
     let linearIndex = startMeasureIndex * STEPS_PER_MEASURE;
     const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
     const tempo = tabData.tempo;
-    const stepDurationMs = (60_000 / tempo) / 4;
+    const stepDurationMs = (60_000 / tempo) / (STEPS_PER_MEASURE / 4);
 
     setIsPlaying(true);
     const initialCursor = {
@@ -1169,7 +1190,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "quick-tab-v2.json";
+    a.download = "quick-tab-v3.json";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1183,13 +1204,13 @@ export default function Home() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const normalized = normalizeToTabDataV2(parsed);
+      const normalized = normalizeToTabDataV3(parsed);
       if (!normalized) {
         alert("Invalid JSON format.");
         return;
       }
 
-      setTabData(sanitizeTabDataV2(normalized));
+      setTabData(sanitizeTabDataV3(normalized));
       stopPlayback();
       clearDigitBuffer();
     } catch {

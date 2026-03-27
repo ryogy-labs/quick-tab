@@ -1,6 +1,7 @@
-export const STEPS_PER_MEASURE = 16;
+export const STEPS_PER_MEASURE = 96;
 export const STRINGS_COUNT = 6;
 export const MAX_FRET = 24;
+export const SIXTEENTH_STEPS = STEPS_PER_MEASURE / 16;
 
 export const TUNING = ["E4", "B3", "G3", "D3", "A2", "E2"];
 
@@ -34,6 +35,19 @@ export type TabRestEvent = {
 };
 
 export type TabEvent = TabNoteEvent | TabRestEvent;
+
+export type TabMeasureV3 = {
+  events: TabEvent[];
+};
+
+export type TabDataV3 = {
+  version: "v3";
+  tempo: number;
+  timeSig: "4/4";
+  stepsPerMeasure: number;
+  tuning: string[];
+  measures: TabMeasureV3[];
+};
 
 export type TabMeasureV2 = {
   events: TabEvent[];
@@ -90,11 +104,11 @@ type PlacementOptions = {
 
 // Flick gesture: vertical level (-2..+2) to step-based len
 export const FLICK_DURATION_MAP: Record<number, number> = {
-  [-2]: 1,   // ↑↑ 16th note
-  [-1]: 2,   // ↑  8th note
-  [0]: 4,    // tap quarter note
-  [1]: 8,    // ↓  half note
-  [2]: 16,   // ↓↓ whole note
+  [-2]: 6,   // ↑↑ 16th note
+  [-1]: 12,  // ↑  8th note
+  [0]: 24,   // tap quarter note
+  [1]: 48,   // ↓  half note
+  [2]: 96,   // ↓↓ whole note
 };
 
 export const getPlaybackDuration = (event: TabEvent): number => {
@@ -104,16 +118,16 @@ export const getPlaybackDuration = (event: TabEvent): number => {
 };
 
 export const DURATION_OPTIONS: DurationOption[] = [
-  { label: "1/16", len: 1, isRest: false },
-  { label: "1/8", len: 2, isRest: false },
-  { label: "1/4", len: 4, isRest: false },
-  { label: "1/2", len: 8, isRest: false },
-  { label: "1", len: 16, isRest: false },
-  { label: "Rest", len: 1, isRest: true },
+  { label: "1/16", len: 6, isRest: false },
+  { label: "1/8", len: 12, isRest: false },
+  { label: "1/4", len: 24, isRest: false },
+  { label: "1/2", len: 48, isRest: false },
+  { label: "1", len: 96, isRest: false },
+  { label: "Rest", len: 6, isRest: true },
 ];
 
-export const createEmptyTabDataV2 = (): TabDataV2 => ({
-  version: 2,
+export const createEmptyTabDataV3 = (): TabDataV3 => ({
+  version: "v3",
   tempo: 120,
   timeSig: "4/4",
   stepsPerMeasure: STEPS_PER_MEASURE,
@@ -121,7 +135,7 @@ export const createEmptyTabDataV2 = (): TabDataV2 => ({
   measures: [{ events: [] }],
 });
 
-export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
+export const sanitizeTabDataV3 = (data: TabDataV3): TabDataV3 => {
   const sanitizedMeasures =
     data.measures.length > 0
       ? data.measures.map((measure) => ({
@@ -130,9 +144,31 @@ export const sanitizeTabDataV2 = (data: TabDataV2): TabDataV2 => {
       : [{ events: [] }];
   return {
     ...data,
+    version: "v3",
     stepsPerMeasure: STEPS_PER_MEASURE,
     measures: sanitizedMeasures,
   };
+};
+
+export const migrateV2ToV3 = (v2: TabDataV2): TabDataV3 => {
+  const multiplier = v2.stepsPerMeasure === STEPS_PER_MEASURE ? 1 : 6;
+  return sanitizeTabDataV3({
+    version: "v3",
+    tempo: clampTempo(v2.tempo),
+    timeSig: "4/4",
+    stepsPerMeasure: STEPS_PER_MEASURE,
+    tuning:
+      Array.isArray(v2.tuning) && v2.tuning.length === STRINGS_COUNT
+        ? v2.tuning.slice(0, STRINGS_COUNT)
+        : [...TUNING],
+    measures: v2.measures.map((measure) => ({
+      events: (measure.events ?? []).map((event) => ({
+        ...event,
+        step: event.step * multiplier,
+        len: event.len * multiplier,
+      })),
+    })),
+  });
 };
 
 const cloneNote = (note: TabNoteEventNote): TabNoteEventNote => ({
@@ -142,71 +178,79 @@ const cloneNote = (note: TabNoteEventNote): TabNoteEventNote => ({
 
 const cloneEvent = (event: TabEvent): TabEvent => {
   if ("rest" in event && event.rest) {
-    return { step: event.step, len: event.len, rest: true };
+    return {
+      step: event.step,
+      len: event.len,
+      rest: true,
+      ...(event.dot ? { dot: true } : {}),
+      ...(event.triplet ? { triplet: true } : {}),
+    };
   }
   return {
     step: event.step,
     len: event.len,
     notes: event.notes.map(cloneNote),
+    ...(event.dot ? { dot: true } : {}),
+    ...(event.triplet ? { triplet: true } : {}),
   };
 };
 
-export const cloneMeasure = (measure: TabMeasureV2): TabMeasureV2 => ({
+export const cloneMeasure = (measure: TabMeasureV3): TabMeasureV3 => ({
   events: measure.events.map(cloneEvent),
 });
 
 export const copyMeasure = (
-  data: TabDataV2,
+  data: TabDataV3,
   measureIndex: number
-): TabMeasureV2 => {
+): TabMeasureV3 => {
   const source = data.measures.at(measureIndex) ?? { events: [] };
   return cloneMeasure(source);
 };
 
 export const duplicateMeasure = (
-  data: TabDataV2,
+  data: TabDataV3,
   measureIndex: number
-): TabDataV2 => {
+): TabDataV3 => {
   const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
   const duplicate = copyMeasure(data, safeIndex);
   const measures = [...data.measures];
   measures.splice(safeIndex + 1, 0, duplicate);
-  return sanitizeTabDataV2({ ...data, measures });
+  return sanitizeTabDataV3({ ...data, measures });
 };
 
 export const pasteMeasure = (
-  data: TabDataV2,
+  data: TabDataV3,
   measureIndex: number,
-  source: TabMeasureV2
-): TabDataV2 => {
+  source: TabMeasureV3
+): TabDataV3 => {
   const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
   const measures = [...data.measures];
   measures[safeIndex] = cloneMeasure(source);
-  return sanitizeTabDataV2({ ...data, measures });
+  return sanitizeTabDataV3({ ...data, measures });
 };
 
 export const insertMeasure = (
-  data: TabDataV2,
+  data: TabDataV3,
   measureIndex: number
-): TabDataV2 => {
+): TabDataV3 => {
   const safeIndex = clampInt(measureIndex, 0, data.measures.length);
   const measures = [...data.measures];
   measures.splice(safeIndex, 0, { events: [] });
-  return sanitizeTabDataV2({ ...data, measures });
+  return sanitizeTabDataV3({ ...data, measures });
 };
 
 export const deleteMeasure = (
-  data: TabDataV2,
+  data: TabDataV3,
   measureIndex: number
-): TabDataV2 => {
+): TabDataV3 => {
   if (data.measures.length <= 1) {
-    return sanitizeTabDataV2(data);
+    return sanitizeTabDataV3(data);
   }
 
   const safeIndex = clampInt(measureIndex, 0, data.measures.length - 1);
   const measures = [...data.measures];
   measures.splice(safeIndex, 1);
-  return sanitizeTabDataV2({ ...data, measures });
+  return sanitizeTabDataV3({ ...data, measures });
 };
 
 export const normalizeStepRange = (
@@ -638,17 +682,18 @@ type RawTabData = {
   version?: unknown;
   tempo?: unknown;
   tuning?: unknown;
+  stepsPerMeasure?: unknown;
   measures?: unknown;
 };
 
-export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
+export const normalizeToTabDataV3 = (raw: unknown): TabDataV3 | null => {
   if (!raw || typeof raw !== "object") {
     return null;
   }
 
   const candidate = raw as RawTabData;
 
-  if (candidate.version === 2) {
+  if (candidate.version === "v3") {
     const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
     if (measures.length === 0) {
       return null;
@@ -662,14 +707,14 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
         }
         return { events: sanitizeEvents(typed.events as TabEvent[], STEPS_PER_MEASURE) };
       })
-      .filter((measure): measure is TabMeasureV2 => measure !== null);
+      .filter((measure): measure is TabMeasureV3 => measure !== null);
 
     if (normalizedMeasures.length === 0) {
       return null;
     }
 
-    return {
-      version: 2,
+    return sanitizeTabDataV3({
+      version: "v3",
       tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
       timeSig: "4/4",
       stepsPerMeasure: STEPS_PER_MEASURE,
@@ -678,7 +723,45 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
       measures: normalizedMeasures,
-    };
+    });
+  }
+
+  if (candidate.version === 2) {
+    const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
+    if (measures.length === 0) {
+      return null;
+    }
+
+    const normalizedMeasures = measures
+      .map((measure) => {
+        const typed = measure as { events?: unknown };
+        if (!Array.isArray(typed.events)) {
+          return null;
+        }
+        return {
+          events: Array.isArray(typed.events)
+            ? (typed.events as TabEvent[])
+            : [],
+        };
+      })
+      .filter((measure): measure is TabMeasureV2 => measure !== null);
+
+    if (normalizedMeasures.length === 0) {
+      return null;
+    }
+
+    return migrateV2ToV3({
+      version: 2,
+      tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
+      timeSig: "4/4",
+      stepsPerMeasure:
+        typeof candidate.stepsPerMeasure === "number" ? Math.trunc(candidate.stepsPerMeasure) : 16,
+      tuning:
+        Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
+          ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
+          : [...TUNING],
+      measures: normalizedMeasures,
+    });
   }
 
   if (candidate.version === 1) {
@@ -689,7 +772,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
 
     const events: TabEvent[] = [];
 
-    steps.slice(0, STEPS_PER_MEASURE).forEach((stepItem, stepIndex) => {
+    steps.slice(0, 16).forEach((stepItem, stepIndex) => {
       const strings =
         typeof stepItem === "object" && stepItem && Array.isArray((stepItem as { strings?: unknown }).strings)
           ? ((stepItem as { strings: unknown[] }).strings as unknown[])
@@ -704,12 +787,12 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
       });
 
       if (notes.length > 0) {
-        events.push({ step: stepIndex, len: 1, notes });
+        events.push({ step: stepIndex * 6, len: 6, notes });
       }
     });
 
-    return {
-      version: 2,
+    return sanitizeTabDataV3({
+      version: "v3",
       tempo,
       timeSig: "4/4",
       stepsPerMeasure: STEPS_PER_MEASURE,
@@ -718,7 +801,7 @@ export const normalizeToTabDataV2 = (raw: unknown): TabDataV2 | null => {
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
       measures: [{ events: sanitizeEvents(events, STEPS_PER_MEASURE) }],
-    };
+    });
   }
 
   return null;
