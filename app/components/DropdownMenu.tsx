@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import styles from "./DropdownMenu.module.css";
 
 type MenuItem =
   | { type: "button"; label: string; onClick: () => void; disabled?: boolean }
   | { type: "separator" }
+  | { type: "custom"; content: ReactNode }
   | { type: "file"; label: string; accept: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void };
 
 type DropdownMenuProps = {
@@ -57,6 +58,13 @@ export default function DropdownMenu({ items }: DropdownMenuProps) {
                     style={{ display: "none" }}
                   />
                 </label>
+              );
+            }
+            if (item.type === "custom") {
+              return (
+                <div key={`custom-${i}`} className={styles.customItem}>
+                  {item.content}
+                </div>
               );
             }
             return (
