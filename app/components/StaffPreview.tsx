@@ -11,6 +11,7 @@ type StaffPreviewProps = {
   stepUnit: number;
   measureStartXs: number[];
   timelineWidth: number;
+  overflowingMeasures?: Set<number>;
   showClef?: boolean;
   showBarLines?: boolean;
 };
@@ -270,6 +271,7 @@ export default function StaffPreview({
   stepUnit,
   measureStartXs,
   timelineWidth,
+  overflowingMeasures = new Set<number>(),
   showClef = true,
   showBarLines = true,
 }: StaffPreviewProps) {
@@ -328,6 +330,8 @@ export default function StaffPreview({
         {showBarLines &&
           Array.from({ length: measureCount + 1 }, (_, measureIndex) => {
             const x = measureStartXs[measureIndex] ?? width;
+            const boundaryMeasureIndex =
+              measureIndex === measureCount ? measureCount - 1 : measureIndex;
             return (
               <line
                 key={`bar-line-${measureIndex}`}
@@ -335,7 +339,9 @@ export default function StaffPreview({
                 x2={x}
                 y1={STAFF_TOP}
                 y2={STAFF_BOTTOM}
-                stroke="#1c2f42"
+                stroke={
+                  overflowingMeasures.has(boundaryMeasureIndex) ? "#d0021b" : "#1c2f42"
+                }
                 strokeWidth={2}
               />
             );

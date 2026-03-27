@@ -117,6 +117,30 @@ export const getPlaybackDuration = (event: TabEvent): number => {
   return event.len;
 };
 
+/**
+ * Effective occupied steps for an event, including dotted / triplet modifiers.
+ * The 96-step grid keeps these values integral.
+ */
+export const getEventOccupiedSteps = (event: TabEvent): number => {
+  if (event.dot) return Math.round(event.len * 1.5);
+  if (event.triplet) return Math.round(event.len * (2 / 3));
+  return event.len;
+};
+
+export const getMeasureOccupiedSteps = (
+  events: TabEvent[],
+  stepsPerMeasure = STEPS_PER_MEASURE
+): number =>
+  sanitizeEvents(events, stepsPerMeasure).reduce(
+    (sum, event) => sum + getEventOccupiedSteps(event),
+    0
+  );
+
+export const isMeasureOverflowing = (
+  events: TabEvent[],
+  stepsPerMeasure = STEPS_PER_MEASURE
+): boolean => getMeasureOccupiedSteps(events, stepsPerMeasure) > stepsPerMeasure;
+
 export const DURATION_OPTIONS: DurationOption[] = [
   { label: "1/16", len: 6, isRest: false },
   { label: "1/8", len: 12, isRest: false },
