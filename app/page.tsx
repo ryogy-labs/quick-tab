@@ -7,11 +7,10 @@ import { STAFF_BOTTOM, STAFF_TOP, STAFF_VIEWBOX_HEIGHT } from "./components/Staf
 import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
+import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import {
   CellPosition,
-
   DurationModifier,
-  OPEN_STRING_MIDI_BY_STRING,
   SIXTEENTH_STEPS,
   STEPS_PER_MEASURE,
   StepRangeClipboard,
@@ -37,7 +36,6 @@ import {
   findOwningEventStep,
   getCellFret,
   getEventOccupiedSteps,
-  getPlaybackDuration,
   insertMeasure,
   isMeasureOverflowing,
   isStepBlockedForNewStart,
@@ -49,7 +47,6 @@ import {
   sanitizeEvents,
   sanitizeTabDataV3,
   shiftEventsFromStep,
-  toFrequency,
   updateEventLengthAtStep,
   upsertNoteAtCell,
   upsertRestAtStep,
@@ -65,11 +62,6 @@ const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 1.5;
-
-type PlayCursor = {
-  measureIndex: number;
-  stepIndex: number;
-};
 
 type CursorAdvanceResult = {
   nextData: TabDataV3;
@@ -168,8 +160,6 @@ export default function Home() {
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [autoShift, setAutoShift] = useState(false);
@@ -205,8 +195,6 @@ export default function Home() {
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
-  const intervalRef = useRef<number | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const staffSectionRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
@@ -285,6 +273,15 @@ export default function Home() {
       ),
     [tabData.measures]
   );
+
+  const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
+    tabData,
+    selectedMeasureIndex,
+    overflowingMeasureSet,
+    onPlaybackEnd: useCallback(() => {
+      setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
+    }, []),
+  });
 
   const getNearestSelectableStep = (targetStep: number): number => {
     const selectable = visibleSteps.filter((step) => !blockedStepSet.has(step));
@@ -701,18 +698,6 @@ export default function Home() {
     setIsRestMode(true);
   };
 
-  const stopPlayback = useMemo(
-    () => () => {
-      if (intervalRef.current !== null) {
-        window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      setIsPlaying(false);
-      setPlayCursor(null);
-    },
-    []
-  );
-
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -812,141 +797,8 @@ export default function Home() {
     return () => {
       stopPlayback();
       clearDigitBuffer();
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => undefined);
-      }
     };
   }, [stopPlayback]);
-
-  const playNotePreview = (data: TabDataV3, measureIndex: number, stepIndex: number) => {
-    const evts = getMeasureEvents(data, measureIndex);
-    const evt = findEventAtStep(evts, stepIndex);
-    if (evt) {
-      void playEvent(evt, data.tempo);
-    }
-  };
-
-  const playEvent = async (event: TabEvent, tempo: number) => {
-    if ("rest" in event && event.rest) {
-      return;
-    }
-
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
-    }
-
-    const context = audioContextRef.current;
-    if (context.state === "suspended") {
-      await context.resume();
-    }
-
-    const stepSec = (60 / tempo) / (STEPS_PER_MEASURE / 4);
-    const durationSec = stepSec * getPlaybackDuration(event);
-    const now = context.currentTime;
-
-    event.notes.forEach((note) => {
-      const rowIndex = note.string - 1;
-      const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
-      if (!openMidi) {
-        return;
-      }
-
-      const midi = openMidi + note.fret;
-      const frequency = toFrequency(midi);
-
-      const osc = context.createOscillator();
-      const gain = context.createGain();
-
-      osc.type = "triangle";
-      osc.frequency.value = frequency;
-
-      // Guitar-like envelope: quick attack, sustain through full duration, gentle release
-      const attackEnd = now + 0.005;
-      const sustainEnd = now + durationSec * 0.95;
-      const releaseEnd = now + durationSec;
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.2, attackEnd);
-      gain.gain.linearRampToValueAtTime(0.15, sustainEnd);
-      gain.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
-
-      osc.connect(gain);
-      gain.connect(context.destination);
-      osc.start(now);
-      osc.stop(releaseEnd + 0.01);
-    });
-  };
-
-  const handlePlay = () => {
-    if (isPlaying) {
-      stopPlayback();
-      return;
-    }
-
-    // If the cursor is at the last measure, restart from the beginning
-    const isAtEnd = selectedMeasureIndex >= tabData.measures.length - 1;
-    const startMeasureIndex = isAtEnd ? 0 : selectedMeasureIndex;
-    let linearIndex = startMeasureIndex * STEPS_PER_MEASURE;
-    const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
-    const tempo = tabData.tempo;
-    const stepDurationMs = (60_000 / tempo) / (STEPS_PER_MEASURE / 4);
-    const measuresForPlayback = tabData.measures.map((measure) => measure.events);
-    const overflowingMeasuresForPlayback = new Set(overflowingMeasureSet);
-
-    setIsPlaying(true);
-    const initialCursor = {
-      measureIndex: Math.floor(linearIndex / STEPS_PER_MEASURE),
-      stepIndex: linearIndex % STEPS_PER_MEASURE,
-    };
-    setPlayCursor(initialCursor);
-
-    const firstEvents = getMeasureEvents(tabData, initialCursor.measureIndex);
-    const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
-    if (firstEvent) {
-      void playEvent(firstEvent, tempo);
-    }
-
-    intervalRef.current = window.setInterval(() => {
-      linearIndex += 1;
-      if (linearIndex >= endLinearExclusive) {
-        stopPlayback();
-        setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
-        return;
-      }
-
-      let cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
-      let cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
-
-      if (overflowingMeasuresForPlayback.has(cursorMeasureIndex)) {
-        const eventsForMeasure = measuresForPlayback[cursorMeasureIndex] ?? [];
-        const occupied = eventsForMeasure
-          .filter((event) => event.step <= cursorStepIndex)
-          .reduce((sum, event) => sum + getEventOccupiedSteps(event), 0);
-
-        if (occupied >= STEPS_PER_MEASURE) {
-          linearIndex = (cursorMeasureIndex + 1) * STEPS_PER_MEASURE;
-          if (linearIndex >= endLinearExclusive) {
-            stopPlayback();
-            setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
-            return;
-          }
-          cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
-          cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
-        }
-      }
-
-      const cursor = {
-        measureIndex: cursorMeasureIndex,
-        stepIndex: cursorStepIndex,
-      };
-      setPlayCursor(cursor);
-
-      const eventsForMeasure = measuresForPlayback[cursor.measureIndex] ?? [];
-      const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
-      if (current) {
-        void playEvent(current, tempo);
-      }
-    }, stepDurationMs);
-  };
 
   const handlePrevMeasure = () => {
     if (isPlaying || selectedMeasureIndex <= 0) {
