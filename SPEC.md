@@ -15,6 +15,7 @@
 - `app/components/FretboardInput.tsx`: フレットボード UI とフリック入力を扱う
 - `app/components/MobileNumpad.tsx`: モバイル向け数字入力と休符入力を扱う
 - `app/hooks/useFlickGesture.ts`: フリック方向から音価と modifier を確定する
+- `app/hooks/usePlayback.ts`: Web Audio による発音と step 単位の再生カーソル進行を管理する
 
 ## Core Flows
 - エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
@@ -60,8 +61,7 @@
 ## Refactoring Tasks
 優先度順。完了したものはマージ時にこの一覧から削除する。
 
-1. `usePlayback` フック抽出 — Web Audio + interval 再生を `app/hooks/usePlayback.ts` に分離し、page.tsx から再生エンジンを切り出す
-2. Sequential モードを `tabModel.ts` へ移動 — `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` をデータ操作層へ移動する
+1. Sequential モードを `tabModel.ts` へ移動 — `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` をデータ操作層へ移動する
 3. `useTabStorage` フック抽出 — localStorage 読み書きを `app/hooks/useTabStorage.ts` に分離する
 4. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
 5. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
