@@ -44,6 +44,9 @@
 - 選択セル、選択範囲、再生状態、再生カーソル、undo/redo 履歴、数字入力バッファ、ズーム率、モバイル判定は UI 状態であり永続化しない
 - Import 時や保存復元時は `normalizeToTabDataV3` と `sanitizeTabDataV3` を通し、不正値や競合イベントを補正した上で扱う
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
+- `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
+- `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、`stepsPerMeasure` 超えはオーバーフローとして保持する
+- Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して page.tsx で管理する。ノート削除時も後続を左詰めする
 
 ## Rules
 - パラメータ範囲・初期値はコード上の定数を正とする。`SPEC.md` には重複記載しない
@@ -52,12 +55,13 @@
 - 範囲選択は MVP では単一 measure に限定される。この制約を跨ぐ機能追加時は clipboard 仕様ごと見直す
 - 大きな機能追加時も、まずは `page.tsx` と `tabModel.ts` の責務境界を崩さずに収めることを優先する
 - `×` ボタンは event 単位削除、キーボード `Backspace/Delete` は選択弦の note 単位削除を基本とする
-- Sequential シフトは「既存イベントの音価変更時のみ」適用し、新規入力時には適用しない
+- Sequential シフトは「既存イベントの音価変更時」および「イベント削除時」に適用し、空ステップへの新規入力時には適用しない
 
 ## Known Issues
 - `app/page.tsx` に UI 状態、再生、永続化、ショートカット、clipboard 処理が集中しており変更影響範囲が広い
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
-- overflow event は内部保持・表示警告・再生スキップまでは対応済みだが、「overflow 分だけ measure 幅を伸ばして表示する」仕様は未整理
-- 可変 measure 幅を導入する場合、TAB / 五線譜 / カーソル / 自動スクロール / 選択 step / blocked 判定まで含めた再設計が必要
+- overflow event は内部保持（`allowOverflow=true` sanitize）・表示警告（赤バーライン）・再生スキップまで対応済み
+- 「overflow 分だけ measure 幅を伸ばして完全に編集可能にする」仕様は未実装。TAB / 五線譜 / カーソル（selectedStep > 95）/ 自動スクロール / range selection の範囲拡張を含む再設計が必要
+- 現在の措置は横スクロール1行レイアウト前提。将来の折り返し複数行レイアウト対応時は measure ごとの `displayColumns` 計算を導入する予定
