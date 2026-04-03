@@ -57,6 +57,18 @@
 - `×` ボタンは event 単位削除、キーボード `Backspace/Delete` は選択弦の note 単位削除を基本とする
 - Sequential シフトは「既存イベントの音価変更時」および「イベント削除時」に適用し、空ステップへの新規入力時には適用しない
 
+## Refactoring Tasks
+優先度順。完了したものはマージ時にこの一覧から削除する。
+
+1. `usePlayback` フック抽出 — Web Audio + interval 再生を `app/hooks/usePlayback.ts` に分離し、page.tsx から再生エンジンを切り出す
+2. Sequential モードを `tabModel.ts` へ移動 — `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` をデータ操作層へ移動する
+3. `useTabStorage` フック抽出 — localStorage 読み書きを `app/hooks/useTabStorage.ts` に分離する
+4. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
+5. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
+6. `FretboardInput` のチューニングを props から受け取る — ハードコードされた弦ラベルを `tabData.tuning` から導出する
+7. `TabNoteEventNote` に `technique` フィールド追加 — スライド・ハンマリング等の起点となる型拡張。migration も含む
+8. `eventsToGrid` の displayColumns 対応 — STEPS_PER_MEASURE ハードコードを引数化し overflow measure の表示に対応する
+
 ## Known Issues
 - `app/page.tsx` に UI 状態、再生、永続化、ショートカット、clipboard 処理が集中しており変更影響範囲が広い
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
