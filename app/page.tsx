@@ -8,6 +8,7 @@ import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
 import { usePlayback, PlayCursor } from "./hooks/usePlayback";
+import { useTabStorage } from "./hooks/useTabStorage";
 import {
   CellPosition,
   DurationModifier,
@@ -55,9 +56,6 @@ import {
   upsertRestAtStep,
 } from "./tabModel";
 
-const STORAGE_KEY = "quick-tab:mvp:v3";
-const LEGACY_STORAGE_KEY_V2 = "quick-tab:mvp:v2";
-const LEGACY_STORAGE_KEY_V1 = "quick-tab:mvp:v1";
 const TAB_LABEL_WIDTH = 92;
 const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
@@ -195,6 +193,11 @@ export default function Home() {
     setNotationScale(isMobile ? 0.5 : 1);
     setFretboardScale(isMobile ? 0.7 : 1);
   }, [isMobile]);
+
+  useTabStorage({
+    tabData,
+    onLoad: useCallback((data: TabDataV3) => setTabData(data), []),
+  });
 
   const digitBufferRef = useRef<string>("");
   const digitTimerRef = useRef<number | null>(null);
@@ -630,52 +633,6 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        const normalized = normalizeToTabDataV3(parsed, true);
-        if (normalized) {
-          setTabData(normalized);
-        }
-      } catch {
-        // ignore
-      }
-      return;
-    }
-
-    const legacyV2 = localStorage.getItem(LEGACY_STORAGE_KEY_V2);
-    if (legacyV2) {
-      try {
-        const parsed = JSON.parse(legacyV2);
-        const normalized = normalizeToTabDataV3(parsed, true);
-        if (normalized) {
-          setTabData(normalized);
-        }
-      } catch {
-        // ignore
-      }
-      return;
-    }
-
-    const legacyV1 = localStorage.getItem(LEGACY_STORAGE_KEY_V1);
-    if (!legacyV1) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(legacyV1);
-      const normalized = normalizeToTabDataV3(parsed, true);
-      if (normalized) {
-        setTabData(normalized);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tabData));
     setTempoInput(String(tabData.tempo));
   }, [tabData]);
 
