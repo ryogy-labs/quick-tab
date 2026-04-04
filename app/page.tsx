@@ -21,9 +21,12 @@ import {
   TabDataV3,
   TabEvent,
   TabMeasureV3,
+  applySequentialDeleteShift,
+  applySequentialShift,
   clampFret,
   clampTempo,
   canPlaceEvent,
+  getSequentialPlacementContext,
   copyMeasure,
   createEmptyTabDataV3,
   deleteMeasure,
@@ -310,81 +313,6 @@ export default function Home() {
     return { ...data, measures };
   };
 
-  const getSequentialPlacementContext = useCallback(
-    (measureEvents: TabEvent[], targetStepIndex: number) => {
-      const oldEvent = findEventAtStep(measureEvents, targetStepIndex);
-      if (!autoShift || !oldEvent) {
-        return {
-          oldEvent,
-          placementEvents: measureEvents,
-          deferredEvents: [] as TabEvent[],
-        };
-      }
-
-      const fromStep = oldEvent.step + getEventOccupiedSteps(oldEvent);
-      const sanitizedMeasureEvents = sanitizeEvents(
-        measureEvents,
-        STEPS_PER_MEASURE,
-        true
-      );
-
-      return {
-        oldEvent,
-        placementEvents: sanitizedMeasureEvents.filter((event) => event.step < fromStep),
-        deferredEvents: sanitizedMeasureEvents.filter((event) => event.step >= fromStep),
-      };
-    },
-    [autoShift]
-  );
-
-  const applySequentialShift = useCallback(
-    (
-      placedEvents: TabEvent[],
-      deferredEvents: TabEvent[],
-      oldEvent: TabEvent | null,
-      newEvent: TabEvent | null
-    ): TabEvent[] => {
-      const combinedEvents = [...placedEvents, ...deferredEvents];
-
-      if (!autoShift || !oldEvent || !newEvent) {
-        return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
-      }
-
-      const oldOccupied = getEventOccupiedSteps(oldEvent);
-      const newOccupied = getEventOccupiedSteps(newEvent);
-      const delta = newOccupied - oldOccupied;
-      if (delta === 0) {
-        return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
-      }
-
-      const fromStep = oldEvent.step + oldOccupied;
-      return sanitizeEvents(
-        shiftEventsFromStep(combinedEvents, fromStep, delta, STEPS_PER_MEASURE),
-        STEPS_PER_MEASURE,
-        true
-      );
-    },
-    [autoShift]
-  );
-
-  const applySequentialDeleteShift = useCallback(
-    (events: TabEvent[], deletedEvent: TabEvent | null): TabEvent[] => {
-      const combinedEvents = sanitizeEvents(events, STEPS_PER_MEASURE, true);
-      if (!autoShift || !deletedEvent) {
-        return combinedEvents;
-      }
-
-      const deletedOccupied = getEventOccupiedSteps(deletedEvent);
-      const fromStep = deletedEvent.step + deletedOccupied;
-      return sanitizeEvents(
-        shiftEventsFromStep(combinedEvents, fromStep, -deletedOccupied, STEPS_PER_MEASURE),
-        STEPS_PER_MEASURE,
-        true
-      );
-    },
-    [autoShift]
-  );
-
   const clearDigitBuffer = () => {
     digitBufferRef.current = "";
     setNumpadBuffer("");
@@ -495,7 +423,8 @@ export default function Home() {
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
-      selected.stepIndex
+      selected.stepIndex,
+      autoShift
     );
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
@@ -505,7 +434,7 @@ export default function Home() {
     }
     const nextEvents = upsertNoteAtCell(placementSource, selected, safeFret, activeInputLen);
     const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent);
+    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -551,7 +480,7 @@ export default function Home() {
       const remainingEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
       const finalEvents =
         oldEvent && !remainingEvent
-          ? applySequentialDeleteShift(nextEvents, oldEvent)
+          ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
           : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
       commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
       return;
@@ -560,7 +489,8 @@ export default function Home() {
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
-      nextSelected.stepIndex
+      nextSelected.stepIndex,
+      autoShift
     );
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
@@ -570,7 +500,7 @@ export default function Home() {
     }
     const nextEvents = upsertNoteAtCell(placementSource, nextSelected, safeFret, activeInputLen);
     const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent);
+    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -625,7 +555,8 @@ export default function Home() {
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
-      nextSelected.stepIndex
+      nextSelected.stepIndex,
+      autoShift
     );
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
@@ -646,7 +577,7 @@ export default function Home() {
       return base;
     });
     const newEvent = findEventAtStep(modifiedEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent);
+    const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -977,7 +908,7 @@ export default function Home() {
     const remainingEvent = findEventAtStep(nextEvents, owningStep);
     const finalEvents =
       oldEvent && !remainingEvent
-        ? applySequentialDeleteShift(nextEvents, oldEvent)
+        ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
         : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
@@ -1000,7 +931,7 @@ export default function Home() {
     const nextEvents = sanitizeEvents(measureEvents, STEPS_PER_MEASURE, true).filter(
       (event) => event.step !== owningStep
     );
-    const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent);
+    const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
 
@@ -1038,7 +969,8 @@ export default function Home() {
     const measureEventsForLen = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEventsForLen,
-      selected.stepIndex
+      selected.stepIndex,
+      autoShift
     );
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEventsForLen;
@@ -1057,7 +989,8 @@ export default function Home() {
       nextEventsForLen,
       deferredEvents,
       oldEvent,
-      newEvent
+      newEvent,
+      autoShift
     );
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
