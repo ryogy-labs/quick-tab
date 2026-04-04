@@ -9,9 +9,12 @@ export const TUNING = ["E4", "B3", "G3", "D3", "A2", "E2"];
 // UI row index mapping: rowIndex 0 => string 1, rowIndex 5 => string 6
 export const OPEN_STRING_MIDI_BY_STRING = [64, 59, 55, 50, 45, 40];
 
+export type Technique = "slide" | "hammer" | "pulloff" | "bend" | "vibrato";
+
 export type TabNoteEventNote = {
   string: number;
   fret: number;
+  technique?: Technique;
 };
 
 export type DurationModifier = "normal" | "dotted" | "triplet";
@@ -205,6 +208,7 @@ export const migrateV2ToV3 = (v2: TabDataV2): TabDataV3 => {
 const cloneNote = (note: TabNoteEventNote): TabNoteEventNote => ({
   string: note.string,
   fret: note.fret,
+  ...(note.technique ? { technique: note.technique } : {}),
 });
 
 const cloneEvent = (event: TabEvent): TabEvent => {
@@ -409,17 +413,19 @@ const clampLenByMeasure = (len: number, step: number, stepsPerMeasure: number): 
 };
 
 const sortAndDedupeNotes = (notes: TabNoteEventNote[]): TabNoteEventNote[] => {
-  const map = new Map<number, number>();
+  const map = new Map<number, TabNoteEventNote>();
   notes.forEach((note) => {
     if (note.string < 1 || note.string > STRINGS_COUNT) {
       return;
     }
-    map.set(note.string, clampFret(note.fret));
+    map.set(note.string, {
+      string: note.string,
+      fret: clampFret(note.fret),
+      ...(note.technique ? { technique: note.technique } : {}),
+    });
   });
 
-  return Array.from(map.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([string, fret]) => ({ string, fret }));
+  return Array.from(map.values()).sort((a, b) => a.string - b.string);
 };
 
 export const rangesOverlap = (
@@ -562,15 +568,22 @@ export const findOwningEventStep = (
   return owning ? owning.step : safeStep;
 };
 
-export const eventsToGrid = (events: TabEvent[]): GridCell[][] => {
+export const eventsToGrid = (
+  events: TabEvent[],
+  displayColumns = STEPS_PER_MEASURE
+): GridCell[][] => {
   const grid: GridCell[][] = Array.from({ length: STRINGS_COUNT }, () =>
-    Array.from({ length: STEPS_PER_MEASURE }, () => ({
+    Array.from({ length: displayColumns }, () => ({
       fret: null,
       isRestStart: false,
     }))
   );
 
-  sanitizeEvents(events, STEPS_PER_MEASURE).forEach((event) => {
+  // Allow overflow events so overflow measures render correctly when displayColumns > STEPS_PER_MEASURE
+  sanitizeEvents(events, STEPS_PER_MEASURE, true).forEach((event) => {
+    if (event.step >= displayColumns) {
+      return;
+    }
     if ("rest" in event && event.rest) {
       grid[0][event.step].isRestStart = true;
       return;
