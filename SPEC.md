@@ -47,7 +47,7 @@
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
 - `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
 - `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、`stepsPerMeasure` 超えはオーバーフローとして保持する
-- Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して page.tsx で管理する。ノート削除時も後続を左詰めする
+- Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して `tabModel.ts` で管理する。ノート削除時も後続を左詰めする。各関数は `autoShift: boolean` を引数に取り、page.tsx 側で渡す
 
 ## Rules
 - パラメータ範囲・初期値はコード上の定数を正とする。`SPEC.md` には重複記載しない
@@ -61,13 +61,12 @@
 ## Refactoring Tasks
 優先度順。完了したものはマージ時にこの一覧から削除する。
 
-1. Sequential モードを `tabModel.ts` へ移動 — `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` をデータ操作層へ移動する
-3. `useTabStorage` フック抽出 — localStorage 読み書きを `app/hooks/useTabStorage.ts` に分離する
-4. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
-5. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
-6. `FretboardInput` のチューニングを props から受け取る — ハードコードされた弦ラベルを `tabData.tuning` から導出する
-7. `TabNoteEventNote` に `technique` フィールド追加 — スライド・ハンマリング等の起点となる型拡張。migration も含む
-8. `eventsToGrid` の displayColumns 対応 — STEPS_PER_MEASURE ハードコードを引数化し overflow measure の表示に対応する
+1. `useTabStorage` フック抽出 — localStorage 読み書きを `app/hooks/useTabStorage.ts` に分離する
+2. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
+3. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
+4. `FretboardInput` のチューニングを props から受け取る — ハードコードされた弦ラベルを `tabData.tuning` から導出する
+5. `TabNoteEventNote` に `technique` フィールド追加 — スライド・ハンマリング等の起点となる型拡張。migration も含む
+6. `eventsToGrid` の displayColumns 対応 — STEPS_PER_MEASURE ハードコードを引数化し overflow measure の表示に対応する
 
 ## Known Issues
 - `app/page.tsx` に UI 状態、再生、永続化、ショートカット、clipboard 処理が集中しており変更影響範囲が広い

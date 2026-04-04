@@ -889,3 +889,98 @@ export const normalizeToTabDataV3 = (
 
   return null;
 };
+
+// --- Sequential mode ---
+// These functions implement the Sequential input mode shift logic.
+// They are pure data transforms and live here rather than in page.tsx.
+
+export type SequentialPlacementContext = {
+  oldEvent: TabEvent | null;
+  placementEvents: TabEvent[];
+  deferredEvents: TabEvent[];
+};
+
+/**
+ * Split measure events into "before the target event ends" and "after", so
+ * that the caller can place a new event and then re-merge with a shift applied.
+ * When autoShift is false or no event exists at targetStepIndex the events are
+ * returned unsplit (deferredEvents is empty).
+ */
+export const getSequentialPlacementContext = (
+  measureEvents: TabEvent[],
+  targetStepIndex: number,
+  autoShift: boolean
+): SequentialPlacementContext => {
+  const oldEvent = findEventAtStep(measureEvents, targetStepIndex);
+  if (!autoShift || !oldEvent) {
+    return {
+      oldEvent,
+      placementEvents: measureEvents,
+      deferredEvents: [],
+    };
+  }
+
+  const fromStep = oldEvent.step + getEventOccupiedSteps(oldEvent);
+  const sanitized = sanitizeEvents(measureEvents, STEPS_PER_MEASURE, true);
+  return {
+    oldEvent,
+    placementEvents: sanitized.filter((event) => event.step < fromStep),
+    deferredEvents: sanitized.filter((event) => event.step >= fromStep),
+  };
+};
+
+/**
+ * After placing a new event, shift all deferred events by the delta between
+ * the old and new event lengths. No-ops when autoShift is false or either
+ * event is null.
+ */
+export const applySequentialShift = (
+  placedEvents: TabEvent[],
+  deferredEvents: TabEvent[],
+  oldEvent: TabEvent | null,
+  newEvent: TabEvent | null,
+  autoShift: boolean
+): TabEvent[] => {
+  const combinedEvents = [...placedEvents, ...deferredEvents];
+
+  if (!autoShift || !oldEvent || !newEvent) {
+    return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
+  }
+
+  const oldOccupied = getEventOccupiedSteps(oldEvent);
+  const newOccupied = getEventOccupiedSteps(newEvent);
+  const delta = newOccupied - oldOccupied;
+  if (delta === 0) {
+    return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
+  }
+
+  const fromStep = oldEvent.step + oldOccupied;
+  return sanitizeEvents(
+    shiftEventsFromStep(combinedEvents, fromStep, delta, STEPS_PER_MEASURE),
+    STEPS_PER_MEASURE,
+    true
+  );
+};
+
+/**
+ * After deleting an event, left-shift all subsequent events to close the gap.
+ * No-ops when autoShift is false or deletedEvent is null.
+ */
+export const applySequentialDeleteShift = (
+  events: TabEvent[],
+  deletedEvent: TabEvent | null,
+  autoShift: boolean
+): TabEvent[] => {
+  const sanitized = sanitizeEvents(events, STEPS_PER_MEASURE, true);
+  if (!autoShift || !deletedEvent) {
+    return sanitized;
+  }
+
+  const deletedOccupied = getEventOccupiedSteps(deletedEvent);
+  const fromStep = deletedEvent.step + deletedOccupied;
+  return sanitizeEvents(
+    shiftEventsFromStep(sanitized, fromStep, -deletedOccupied, STEPS_PER_MEASURE),
+    STEPS_PER_MEASURE,
+    true
+  );
+};
