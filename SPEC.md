@@ -17,6 +17,8 @@
 - `app/hooks/useFlickGesture.ts`: フリック方向から音価と modifier を確定する
 - `app/hooks/usePlayback.ts`: Web Audio による発音と step 単位の再生カーソル進行を管理する
 - `app/hooks/useTabStorage.ts`: localStorage への読み書きと legacy データ移行を担う
+- `app/hooks/useUndoRedo.ts`: undo/redo スタック管理と canUndo/canRedo 状態を担う
+- `app/hooks/useKeyboardShortcuts.ts`: キーボードショートカットのイベント登録を担う
 
 ## Core Flows
 - エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
@@ -39,7 +41,7 @@
 - 旧データ `quick-tab:mvp:v2`, `quick-tab:mvp:v1` が存在する場合は、初回読込時に v3 モデルへ normalize して取り込む
 - TAB データの基本構造は `TabDataV3 = { version, tempo, timeSig, stepsPerMeasure, tuning, measures }`
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
-- Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret }[]` の配列で複数弦同時入力を表現する
+- Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する
 - Rest event は `step`, `len`, `rest: true`, optional `dot` / `triplet` を持つ
 - `stepsPerMeasure` は 96 を基本とし、16 分音符 = 6 step として表現する。これにより dotted / triplet を整数 step で扱う
 - Measure clipboard と range clipboard はメモリ上の一時状態であり、リロード後には残らない
@@ -59,14 +61,6 @@
 - `×` ボタンは event 単位削除、キーボード `Backspace/Delete` は選択弦の note 単位削除を基本とする
 - Sequential シフトは「既存イベントの音価変更時」および「イベント削除時」に適用し、空ステップへの新規入力時には適用しない
 
-## Refactoring Tasks
-優先度順。完了したものはマージ時にこの一覧から削除する。
-
-1. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
-3. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
-4. `FretboardInput` のチューニングを props から受け取る — ハードコードされた弦ラベルを `tabData.tuning` から導出する
-5. `TabNoteEventNote` に `technique` フィールド追加 — スライド・ハンマリング等の起点となる型拡張。migration も含む
-6. `eventsToGrid` の displayColumns 対応 — STEPS_PER_MEASURE ハードコードを引数化し overflow measure の表示に対応する
 
 ## Known Issues
 - `app/page.tsx` に UI 状態、再生、永続化、ショートカット、clipboard 処理が集中しており変更影響範囲が広い

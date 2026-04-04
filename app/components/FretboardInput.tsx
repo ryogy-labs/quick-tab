@@ -12,21 +12,13 @@ type FretboardInputProps = {
   isPlaying: boolean;
   scale: number;
   onScaleChange: (scale: number) => void;
+  tuning: string[];
 };
 
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 1.5;
 
 const FRET_NUMBERS = Array.from({ length: 12 }, (_, index) => index + 1);
-
-const FRETBOARD_ROWS = [
-  { rowIndex: 0, label: "E4 (1)" },
-  { rowIndex: 1, label: "B3 (2)" },
-  { rowIndex: 2, label: "G3 (3)" },
-  { rowIndex: 3, label: "D3 (4)" },
-  { rowIndex: 4, label: "A2 (5)" },
-  { rowIndex: 5, label: "E2 (6)" },
-];
 
 const MARKER_FRETS = new Set([3, 5, 7, 9, 12]);
 
@@ -39,7 +31,12 @@ export default function FretboardInput({
   isPlaying,
   scale,
   onScaleChange,
+  tuning,
 }: FretboardInputProps) {
+  const fretboardRows = tuning.map((note, rowIndex) => ({
+    rowIndex,
+    label: `${note} (${rowIndex + 1})`,
+  }));
   const activeNoteSet = new Set(activeNotes.map((note) => `${note.string}:${note.fret}`));
 
   // Track which cell is being flicked
@@ -182,7 +179,7 @@ export default function FretboardInput({
             ))}
           </div>
 
-          {FRETBOARD_ROWS.map((stringRow) => (
+          {fretboardRows.map((stringRow) => (
             <div key={`row-${stringRow.rowIndex}`} className={styles.stringRow}>
               <button
                 type="button"

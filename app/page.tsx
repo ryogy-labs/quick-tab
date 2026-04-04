@@ -9,6 +9,8 @@ import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
 import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import { useTabStorage } from "./hooks/useTabStorage";
+import { useUndoRedo } from "./hooks/useUndoRedo";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import {
   CellPosition,
   DurationModifier,
@@ -40,6 +42,7 @@ import {
   findOwningEventStep,
   getCellFret,
   getEventOccupiedSteps,
+  getMeasureOccupiedSteps,
   insertMeasure,
   isMeasureOverflowing,
   isStepBlockedForNewStart,
@@ -77,18 +80,6 @@ type StaffBarMetrics = {
 
 const toGlobalStep = (cursor: PlayCursor): number =>
   cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
-
-const isEditableTarget = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  const tagName = target.tagName;
-  return (
-    tagName === "INPUT" ||
-    tagName === "TEXTAREA" ||
-    target.isContentEditable
-  );
-};
 
 const appendEmptyMeasure = (data: TabDataV3): TabDataV3 => ({
   ...data,
@@ -161,8 +152,6 @@ export default function Home() {
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
   const [autoShift, setAutoShift] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
@@ -206,8 +195,6 @@ export default function Home() {
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
   const didDragRangeRef = useRef(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
-  const undoStackRef = useRef<TabDataV3[]>([]);
-  const redoStackRef = useRef<TabDataV3[]>([]);
 
   const selectedMeasureIndex = Math.max(
     0,
@@ -253,10 +240,6 @@ export default function Home() {
     });
     return set;
   }, [events, visibleSteps]);
-  const measureGrids = useMemo(
-    () => tabData.measures.map((measure) => eventsToGrid(measure.events)),
-    [tabData.measures]
-  );
   const blockedStepsByMeasure = useMemo(
     () =>
       tabData.measures.map((measure) => {
@@ -279,6 +262,21 @@ export default function Home() {
       ),
     [tabData.measures]
   );
+  const measureGrids = useMemo(
+    () =>
+      tabData.measures.map((measure, i) => {
+        const cols = overflowingMeasureSet.has(i)
+          ? getMeasureOccupiedSteps(measure.events)
+          : STEPS_PER_MEASURE;
+        return eventsToGrid(measure.events, cols);
+      }),
+    [tabData.measures, overflowingMeasureSet]
+  );
+
+  const { commit: commitTabData, undo: handleUndo, redo: handleRedo, canUndo, canRedo } = useUndoRedo({
+    tabData,
+    onDataChange: useCallback((data: TabDataV3) => setTabData(data), []),
+  });
 
   const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
     tabData,
@@ -323,36 +321,6 @@ export default function Home() {
       window.clearTimeout(digitTimerRef.current);
       digitTimerRef.current = null;
     }
-  };
-
-  const commitTabData = (nextData: TabDataV3) => {
-    undoStackRef.current = [...undoStackRef.current.slice(-49), tabData];
-    redoStackRef.current = [];
-    setCanUndo(true);
-    setCanRedo(false);
-    setTabData(nextData);
-  };
-
-  const handleUndo = () => {
-    const stack = undoStackRef.current;
-    if (stack.length === 0) return;
-    const prev = stack[stack.length - 1];
-    undoStackRef.current = stack.slice(0, -1);
-    redoStackRef.current = [...redoStackRef.current, tabData];
-    setCanUndo(undoStackRef.current.length > 0);
-    setCanRedo(true);
-    setTabData(prev);
-  };
-
-  const handleRedo = () => {
-    const stack = redoStackRef.current;
-    if (stack.length === 0) return;
-    const next = stack[stack.length - 1];
-    redoStackRef.current = stack.slice(0, -1);
-    undoStackRef.current = [...undoStackRef.current, tabData];
-    setCanUndo(true);
-    setCanRedo(redoStackRef.current.length > 0);
-    setTabData(next);
   };
 
   const setSingleCellSelection = (next: CellPosition) => {
@@ -992,127 +960,29 @@ export default function Home() {
     digitTimerRef.current = window.setTimeout(commit, 420);
   };
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const key = event.key;
-      const withCommandKey = event.metaKey || event.ctrlKey;
-      const editableTarget = isEditableTarget(event.target);
-
-      if (withCommandKey && !editableTarget) {
-        if (key.toLowerCase() === "z") {
-          event.preventDefault();
-          if (event.shiftKey) {
-            handleRedo();
-          } else {
-            handleUndo();
-          }
-          return;
-        }
-
-        if (key.toLowerCase() === "y") {
-          event.preventDefault();
-          handleRedo();
-          return;
-        }
-
-        if (key.toLowerCase() === "c") {
-          event.preventDefault();
-          if (selectedRange) {
-            handleCopyRange();
-          } else {
-            handleCopyMeasure();
-          }
-          return;
-        }
-
-        if (key.toLowerCase() === "v") {
-          if (rangeClipboard) {
-            if (isPlaying) {
-              return;
-            }
-            event.preventDefault();
-            handlePasteRange();
-            return;
-          }
-
-          if (!measureClipboard || isPlaying) {
-            return;
-          }
-          event.preventDefault();
-          handlePasteMeasure();
-          return;
-        }
-      }
-
-      if (key >= "0" && key <= "9") {
-        event.preventDefault();
-        handleDigitInput(key);
-        return;
-      }
-
-      if (key === "Backspace" || key === "Delete") {
-        event.preventDefault();
-        handleDelete();
-        return;
-      }
-
-      if (key === " ") {
-        event.preventDefault();
-        handlePlay();
-        return;
-      }
-
-      if (key === "Enter" && activeIsRestMode) {
-        event.preventDefault();
-        placeRestAtStep(selected.stepIndex);
-        return;
-      }
-
-      if (key === "ArrowUp" || key.toLowerCase() === "w") {
-        event.preventDefault();
-        clearDigitBuffer();
-        moveSelection({ ...selected, rowIndex: selected.rowIndex - 1 });
-        return;
-      }
-
-      if (key === "ArrowDown" || key.toLowerCase() === "s") {
-        event.preventDefault();
-        clearDigitBuffer();
-        moveSelection({ ...selected, rowIndex: selected.rowIndex + 1 });
-        return;
-      }
-
-      if (key === "ArrowLeft" || key.toLowerCase() === "a") {
-        event.preventDefault();
-        clearDigitBuffer();
-        moveHorizontal(-1);
-        return;
-      }
-
-      if (key === "ArrowRight" || key.toLowerCase() === "d") {
-        event.preventDefault();
-        clearDigitBuffer();
-        moveHorizontal(1);
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [
-    activeInputLen,
-    activeIsRestMode,
-    canRedo,
-    canUndo,
-    inputLen,
+  useKeyboardShortcuts({
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onDelete: handleDelete,
+    onPlay: handlePlay,
+    onDigitInput: handleDigitInput,
+    onPlaceRest: placeRestAtStep,
+    onMoveRowUp: () => moveSelection({ ...selected, rowIndex: selected.rowIndex - 1 }),
+    onMoveRowDown: () => moveSelection({ ...selected, rowIndex: selected.rowIndex + 1 }),
+    onMoveLeft: () => moveHorizontal(-1),
+    onMoveRight: () => moveHorizontal(1),
+    onCopyMeasure: handleCopyMeasure,
+    onCopyRange: handleCopyRange,
+    onPasteMeasure: handlePasteMeasure,
+    onPasteRange: handlePasteRange,
+    onClearDigitBuffer: clearDigitBuffer,
     isPlaying,
-    isRestMode,
+    activeIsRestMode,
+    selectedStep: selected.stepIndex,
+    selectedRange,
     measureClipboard,
     rangeClipboard,
-    selected,
-    selectedMeasureIndex,
-    selectedRange,
-    tabData,
-  ]);
+  });
 
   const handleExport = () => {
     const blob = new Blob([JSON.stringify(tabData, null, 2)], {
@@ -1602,6 +1472,7 @@ export default function Home() {
             isPlaying={isPlaying}
             scale={fretboardScale}
             onScaleChange={handleFretboardScaleChange}
+            tuning={tabData.tuning}
           />
           <div className={styles.restFlickRow}>
             <RestFlickButton
