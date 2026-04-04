@@ -16,6 +16,7 @@
 - `app/components/MobileNumpad.tsx`: モバイル向け数字入力と休符入力を扱う
 - `app/hooks/useFlickGesture.ts`: フリック方向から音価と modifier を確定する
 - `app/hooks/usePlayback.ts`: Web Audio による発音と step 単位の再生カーソル進行を管理する
+- `app/hooks/useTabStorage.ts`: localStorage への読み書きと legacy データ移行を担う
 
 ## Core Flows
 - エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
@@ -61,8 +62,7 @@
 ## Refactoring Tasks
 優先度順。完了したものはマージ時にこの一覧から削除する。
 
-1. `useTabStorage` フック抽出 — localStorage 読み書きを `app/hooks/useTabStorage.ts` に分離する
-2. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
+1. `useUndoRedo` フック抽出 — undo/redo スタック管理を `app/hooks/useUndoRedo.ts` に分離し、refs+state 二重管理を解消する
 3. `useKeyboardShortcuts` フック抽出 — キーボードイベント処理（deps 13個の useEffect）を `app/hooks/useKeyboardShortcuts.ts` に分離する
 4. `FretboardInput` のチューニングを props から受け取る — ハードコードされた弦ラベルを `tabData.tuning` から導出する
 5. `TabNoteEventNote` に `technique` フィールド追加 — スライド・ハンマリング等の起点となる型拡張。migration も含む
