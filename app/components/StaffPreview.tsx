@@ -9,6 +9,7 @@ type StaffPreviewProps = {
   currentCursor: { measureIndex: number; stepIndex: number } | null;
   stepWidth: number;
   stepUnit: number;
+  measureDisplaySlots: number[];
   measureStartXs: number[];
   timelineWidth: number;
   overflowingMeasures?: Set<number>;
@@ -199,7 +200,7 @@ const buildRenderEvents = (
   stepUnit: number
 ): EventRender[] => {
   return measuresEvents.flatMap((events, measureIndex) =>
-    sanitizeEvents(events, STEPS_PER_MEASURE)
+    sanitizeEvents(events, STEPS_PER_MEASURE, true)
       .map((event) => {
         const measureStartX = measureStartXs[measureIndex] ?? measureStartXs[0] ?? 0;
         const x = measureStartX + stepWidth * (event.step / stepUnit + 0.5);
@@ -269,15 +270,14 @@ export default function StaffPreview({
   currentCursor,
   stepWidth,
   stepUnit,
+  measureDisplaySlots,
   measureStartXs,
   timelineWidth,
   overflowingMeasures = new Set<number>(),
   showClef = true,
   showBarLines = true,
 }: StaffPreviewProps) {
-  const displaySlots = STEPS_PER_MEASURE / stepUnit;
   const measureCount = Math.max(1, measuresEvents.length);
-  const measureWidth = stepWidth * displaySlots;
   const width = timelineWidth;
   const viewBoxHeight = STAFF_VIEWBOX_HEIGHT;
   const labelWidth = measureStartXs[0] ?? 0;
@@ -302,7 +302,9 @@ export default function StaffPreview({
 
         {activeSlot !== null &&
           activeSlot.slotIndex >= 0 &&
-          activeSlot.slotIndex < displaySlots && (
+          activeSlot.slotIndex <
+            (measureDisplaySlots[activeSlot.measureIndex] ??
+              Math.ceil(STEPS_PER_MEASURE / stepUnit)) && (
           <rect
             x={(measureStartXs[activeSlot.measureIndex] ?? labelWidth) + stepWidth * activeSlot.slotIndex}
             y={10}

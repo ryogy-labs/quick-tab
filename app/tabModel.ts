@@ -144,6 +144,31 @@ export const isMeasureOverflowing = (
   stepsPerMeasure = STEPS_PER_MEASURE
 ): boolean => getMeasureOccupiedSteps(events, stepsPerMeasure) > stepsPerMeasure;
 
+export const getMeasureDisplaySteps = (
+  events: TabEvent[],
+  displayUnit: number,
+  stepsPerMeasure = STEPS_PER_MEASURE
+): number => {
+  const safeDisplayUnit = Math.max(1, Math.trunc(displayUnit));
+  const maxStepExclusive = sanitizeEvents(events, stepsPerMeasure, true).reduce(
+    (max, event) => Math.max(max, event.step + Math.max(1, getEventOccupiedSteps(event))),
+    stepsPerMeasure
+  );
+  return Math.max(
+    stepsPerMeasure,
+    Math.ceil(maxStepExclusive / safeDisplayUnit) * safeDisplayUnit
+  );
+};
+
+export const getVisibleStepsForMeasure = (
+  displaySteps: number,
+  displayUnit: number
+): number[] => {
+  const safeDisplayUnit = Math.max(1, Math.trunc(displayUnit));
+  const slotCount = Math.max(1, Math.ceil(displaySteps / safeDisplayUnit));
+  return Array.from({ length: slotCount }, (_, index) => index * safeDisplayUnit);
+};
+
 export const DURATION_OPTIONS: DurationOption[] = [
   { label: "1/16", len: 6, isRest: false },
   { label: "1/8", len: 12, isRest: false },
@@ -324,7 +349,7 @@ export const extractRangeClipboardFromMeasure = (
   events: TabEvent[],
   range: StepRangeSelection
 ): StepRangeClipboard => {
-  const clippedEvents = sanitizeEvents(events, STEPS_PER_MEASURE)
+  const clippedEvents = sanitizeEvents(events, STEPS_PER_MEASURE, true)
     .filter((event) => event.step >= range.startStepIndex && event.step <= range.endStepIndex)
     .map((event) => {
       if ("rest" in event && event.rest) {
@@ -332,12 +357,16 @@ export const extractRangeClipboardFromMeasure = (
           step: event.step - range.startStepIndex,
           len: event.len,
           rest: true as const,
+          ...(event.dot ? { dot: true as const } : {}),
+          ...(event.triplet ? { triplet: true as const } : {}),
         };
       }
       return {
         step: event.step - range.startStepIndex,
         len: event.len,
         notes: event.notes.map(cloneNote),
+        ...(event.dot ? { dot: true as const } : {}),
+        ...(event.triplet ? { triplet: true as const } : {}),
       };
     });
 
@@ -352,22 +381,18 @@ export const extractRangeClipboardFromMeasure = (
 export const pasteRangeClipboardIntoMeasure = (
   events: TabEvent[],
   startStepIndex: number,
-  clipboard: StepRangeClipboard
+  clipboard: StepRangeClipboard,
+  stepLimit = STEPS_PER_MEASURE
 ): TabEvent[] => {
-  const safeStartStep = clampStep(startStepIndex);
+  const safeStartStep = clampStep(startStepIndex, stepLimit);
   const targetWindowLen = Math.max(1, clipboard.length);
-  const baseEvents = sanitizeEvents(events, STEPS_PER_MEASURE).filter(
+  const baseEvents = sanitizeEvents(events, stepLimit, true).filter(
     (event) => !rangesOverlap(event.step, event.len, safeStartStep, targetWindowLen)
   );
 
   let nextEvents = [...baseEvents];
   clipboard.events.forEach((event) => {
     const shiftedStep = safeStartStep + event.step;
-    if (shiftedStep >= STEPS_PER_MEASURE) {
-      console.warn(`[tabModel] skipped pasted event beyond measure: step=${shiftedStep}`);
-      return;
-    }
-
     const shiftedEvent: TabEvent =
       "rest" in event && event.rest
         ? { step: shiftedStep, len: event.len, rest: true }
@@ -376,17 +401,31 @@ export const pasteRangeClipboardIntoMeasure = (
             len: event.len,
             notes: event.notes.map(cloneNote),
           };
+    if ("dot" in event && event.dot) {
+      shiftedEvent.dot = true;
+    }
+    if ("triplet" in event && event.triplet) {
+      shiftedEvent.triplet = true;
+    }
 
-    if (!canPlaceEvent(nextEvents, shiftedEvent.step, shiftedEvent.len, { ignoreStep: shiftedEvent.step })) {
+    if (
+      !canPlaceEvent(
+        nextEvents,
+        shiftedEvent.step,
+        shiftedEvent.len,
+        { ignoreStep: shiftedEvent.step },
+        stepLimit
+      )
+    ) {
       console.warn(`[tabModel] skipped pasted event due to collision: step=${shiftedEvent.step}`);
       return;
     }
 
     nextEvents = [...nextEvents.filter((existing) => existing.step !== shiftedEvent.step), shiftedEvent];
-    nextEvents = sanitizeEvents(nextEvents, STEPS_PER_MEASURE);
+    nextEvents = sanitizeEvents(nextEvents, stepLimit, true);
   });
 
-  return sanitizeEvents(nextEvents, STEPS_PER_MEASURE);
+  return sanitizeEvents(nextEvents, stepLimit, true);
 };
 
 const clampInt = (value: number, min: number, max: number): number =>
@@ -396,13 +435,15 @@ export const clampFret = (value: number): number => clampInt(value, 0, MAX_FRET)
 
 export const clampTempo = (value: number): number => clampInt(value, 30, 300);
 
-const clampStep = (value: number): number =>
-  clampInt(value, 0, STEPS_PER_MEASURE - 1);
+const clampStep = (value: number, stepLimit = STEPS_PER_MEASURE): number =>
+  clampInt(value, 0, Math.max(0, stepLimit - 1));
 
-const clampLen = (len: number, step: number): number => {
-  const maxLen = STEPS_PER_MEASURE - step;
+const clampLen = (len: number, step: number, stepLimit = STEPS_PER_MEASURE): number => {
+  const maxLen = stepLimit - step;
   return clampInt(len, 1, Math.max(1, maxLen));
 };
+
+const clampLenAllowOverflow = (len: number): number => clampInt(len, 1, STEPS_PER_MEASURE);
 
 const clampStepByMeasure = (value: number, stepsPerMeasure: number): number =>
   clampInt(value, 0, stepsPerMeasure - 1);
@@ -533,12 +574,17 @@ export const canPlaceEvent = (
   stepIndex: number,
   len: number,
   options: PlacementOptions = {},
-  stepsPerMeasure = STEPS_PER_MEASURE
+  stepsPerMeasure = STEPS_PER_MEASURE,
+  allowOverflow = false
 ): boolean => {
-  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
-  const safeLen = clampLenByMeasure(len, safeStep, stepsPerMeasure);
+  const safeStep = allowOverflow
+    ? Math.max(0, Math.trunc(stepIndex))
+    : clampStepByMeasure(stepIndex, stepsPerMeasure);
+  const safeLen = allowOverflow
+    ? clampLenAllowOverflow(len)
+    : clampLenByMeasure(len, safeStep, stepsPerMeasure);
 
-  return sanitizeEvents(events, stepsPerMeasure)
+  return sanitizeEvents(events, stepsPerMeasure, allowOverflow)
     .filter((event) => event.step !== options.ignoreStep)
     .every((event) => !rangesOverlap(event.step, event.len, safeStep, safeLen));
 };
@@ -602,7 +648,8 @@ export const eventsToGrid = (
 };
 
 export const findEventAtStep = (events: TabEvent[], stepIndex: number): TabEvent | null => {
-  return sanitizeEvents(events, STEPS_PER_MEASURE).find((event) => event.step === stepIndex) ?? null;
+  const safeStep = Math.max(0, Math.trunc(stepIndex));
+  return sanitizeEvents(events, STEPS_PER_MEASURE, true).find((event) => event.step === safeStep) ?? null;
 };
 
 export const getCellFret = (
@@ -624,18 +671,24 @@ export const upsertNoteAtCell = (
   events: TabEvent[],
   cell: CellPosition,
   fret: number,
-  len: number
+  len: number,
+  stepLimit = STEPS_PER_MEASURE,
+  allowOverflow = false
 ): TabEvent[] => {
-  const stepIndex = clampStep(cell.stepIndex);
+  const stepIndex = clampStep(cell.stepIndex, stepLimit);
   const stringNumber = clampInt(cell.rowIndex + 1, 1, STRINGS_COUNT);
-  const safeLen = clampLen(len, stepIndex);
+  const safeLen = allowOverflow
+    ? clampLenAllowOverflow(len)
+    : clampLen(len, stepIndex, stepLimit);
   const safeFret = clampFret(fret);
 
-  if (!canPlaceEvent(events, stepIndex, safeLen, { ignoreStep: stepIndex })) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  if (!canPlaceEvent(events, stepIndex, safeLen, { ignoreStep: stepIndex }, stepLimit, allowOverflow)) {
+    return sanitizeEvents(events, stepLimit, allowOverflow);
   }
 
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== stepIndex);
+  const next = sanitizeEvents(events, stepLimit, allowOverflow).filter(
+    (event) => event.step !== stepIndex
+  );
   const existing = findEventAtStep(events, stepIndex);
 
   let notes: TabNoteEventNote[] = [];
@@ -647,63 +700,76 @@ export const upsertNoteAtCell = (
   const merged = sortAndDedupeNotes([...withoutTarget, { string: stringNumber, fret: safeFret }]);
 
   next.push({ step: stepIndex, len: safeLen, notes: merged });
-  return sanitizeEvents(next, STEPS_PER_MEASURE);
+  return sanitizeEvents(next, stepLimit, allowOverflow);
 };
 
 export const upsertRestAtStep = (
   events: TabEvent[],
   stepIndex: number,
-  len: number
+  len: number,
+  stepLimit = STEPS_PER_MEASURE,
+  allowOverflow = false
 ): TabEvent[] => {
-  const safeStep = clampStep(stepIndex);
-  const safeLen = clampLen(len, safeStep);
-  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep })) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  const safeStep = clampStep(stepIndex, stepLimit);
+  const safeLen = allowOverflow
+    ? clampLenAllowOverflow(len)
+    : clampLen(len, safeStep, stepLimit);
+  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep }, stepLimit, allowOverflow)) {
+    return sanitizeEvents(events, stepLimit, allowOverflow);
   }
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, stepLimit, allowOverflow).filter(
+    (event) => event.step !== safeStep
+  );
   next.push({ step: safeStep, len: safeLen, rest: true });
-  return sanitizeEvents(next, STEPS_PER_MEASURE);
+  return sanitizeEvents(next, stepLimit, allowOverflow);
 };
 
 export const updateEventLengthAtStep = (
   events: TabEvent[],
   stepIndex: number,
-  len: number
+  len: number,
+  stepLimit = STEPS_PER_MEASURE,
+  allowOverflow = false
 ): TabEvent[] => {
-  const safeStep = clampStep(stepIndex);
+  const safeStep = clampStep(stepIndex, stepLimit);
   const existing = findEventAtStep(events, safeStep);
   if (!existing) {
-    return sanitizeEvents(events);
+    return sanitizeEvents(events, stepLimit, allowOverflow);
   }
 
-  const safeLen = clampLen(len, safeStep);
-  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep })) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE);
+  const safeLen = allowOverflow
+    ? clampLenAllowOverflow(len)
+    : clampLen(len, safeStep, stepLimit);
+  if (!canPlaceEvent(events, safeStep, safeLen, { ignoreStep: safeStep }, stepLimit, allowOverflow)) {
+    return sanitizeEvents(events, stepLimit, allowOverflow);
   }
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, stepLimit, allowOverflow).filter(
+    (event) => event.step !== safeStep
+  );
 
   if ("rest" in existing && existing.rest) {
     next.push({ step: existing.step, len: safeLen, rest: true });
-    return sanitizeEvents(next, STEPS_PER_MEASURE);
+    return sanitizeEvents(next, stepLimit, allowOverflow);
   }
 
   next.push({ step: existing.step, len: safeLen, notes: existing.notes });
-  return sanitizeEvents(next, STEPS_PER_MEASURE);
+  return sanitizeEvents(next, stepLimit, allowOverflow);
 };
 
 export const deleteCellOrRestAtStep = (
   events: TabEvent[],
-  cell: CellPosition
+  cell: CellPosition,
+  stepLimit = STEPS_PER_MEASURE
 ): TabEvent[] => {
-  const safeStep = clampStep(cell.stepIndex);
+  const safeStep = clampStep(cell.stepIndex, stepLimit);
   const stringNumber = clampInt(cell.rowIndex + 1, 1, STRINGS_COUNT);
   const existing = findEventAtStep(events, safeStep);
 
   if (!existing) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE, true);
+    return sanitizeEvents(events, stepLimit, true);
   }
 
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, stepLimit, true).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     return next;
@@ -715,33 +781,35 @@ export const deleteCellOrRestAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
-  return sanitizeEvents(next, STEPS_PER_MEASURE, true);
+  return sanitizeEvents(next, stepLimit, true);
 };
 
 export const deleteEventAtStep = (
   events: TabEvent[],
-  stepIndex: number
+  stepIndex: number,
+  stepLimit = STEPS_PER_MEASURE
 ): TabEvent[] => {
-  const safeStep = clampStep(stepIndex);
-  return sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
+  const safeStep = clampStep(stepIndex, stepLimit);
+  return sanitizeEvents(events, stepLimit, true).filter((event) => event.step !== safeStep);
 };
 
 export const deleteSpecificNoteAtStep = (
   events: TabEvent[],
   stepIndex: number,
   stringNumber: number,
-  fret: number
+  fret: number,
+  stepLimit = STEPS_PER_MEASURE
 ): TabEvent[] => {
-  const safeStep = clampStep(stepIndex);
+  const safeStep = clampStep(stepIndex, stepLimit);
   const safeString = clampInt(stringNumber, 1, STRINGS_COUNT);
   const safeFret = clampFret(fret);
   const existing = findEventAtStep(events, safeStep);
 
   if (!existing) {
-    return sanitizeEvents(events, STEPS_PER_MEASURE, true);
+    return sanitizeEvents(events, stepLimit, true);
   }
 
-  const next = sanitizeEvents(events, STEPS_PER_MEASURE, true).filter((event) => event.step !== safeStep);
+  const next = sanitizeEvents(events, stepLimit, true).filter((event) => event.step !== safeStep);
 
   if ("rest" in existing && existing.rest) {
     return next;
@@ -755,11 +823,15 @@ export const deleteSpecificNoteAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
-  return sanitizeEvents(next, STEPS_PER_MEASURE, true);
+  return sanitizeEvents(next, stepLimit, true);
 };
 
-export const moveStepByLen = (stepIndex: number, len: number): number => {
-  return clampStep(stepIndex + Math.max(1, Math.trunc(len)));
+export const moveStepByLen = (
+  stepIndex: number,
+  len: number,
+  stepLimit = STEPS_PER_MEASURE
+): number => {
+  return clampStep(stepIndex + Math.max(1, Math.trunc(len)), stepLimit);
 };
 
 export const toFrequency = (midiNote: number): number =>
