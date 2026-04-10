@@ -41,8 +41,10 @@ import {
   findEventAtStep,
   findOwningEventStep,
   getCellFret,
+  getMeasureDisplaySteps,
   getEventOccupiedSteps,
   getMeasureOccupiedSteps,
+  getVisibleStepsForMeasure,
   insertMeasure,
   isMeasureOverflowing,
   isStepBlockedForNewStart,
@@ -90,48 +92,67 @@ const getNextCursorPositionWithAutoAppend = (
   data: TabDataV3,
   selected: CellPosition,
   moveAmount: number,
-  isPlaying: boolean
+  isPlaying: boolean,
+  displayUnit: number
 ): CursorAdvanceResult => {
   const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
-  const totalMeasures = data.measures.length;
-  const absoluteStep = selected.measureIndex * STEPS_PER_MEASURE + selected.stepIndex + safeMoveAmount;
-  const maxStepExclusive = totalMeasures * STEPS_PER_MEASURE;
+  let nextData = data;
+  let measureIndex = Math.max(0, Math.min(data.measures.length - 1, selected.measureIndex));
+  let stepIndex = Math.max(0, selected.stepIndex);
+  let remaining = safeMoveAmount;
+  let didAppendMeasure = false;
 
-  if (absoluteStep < maxStepExclusive) {
-    return {
-      nextData: data,
-      nextSelected: {
-        ...selected,
-        measureIndex: Math.floor(absoluteStep / STEPS_PER_MEASURE),
-        stepIndex: absoluteStep % STEPS_PER_MEASURE,
-      },
-      didAppendMeasure: false,
-    };
+  while (remaining > 0) {
+    const measureEvents = nextData.measures.at(measureIndex)?.events ?? [];
+    const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit);
+    const targetStep = stepIndex + remaining;
+
+    if (targetStep < displaySteps) {
+      return {
+        nextData,
+        nextSelected: {
+          ...selected,
+          measureIndex,
+          stepIndex: targetStep,
+        },
+        didAppendMeasure,
+      };
+    }
+
+    remaining = targetStep - displaySteps;
+
+    if (measureIndex < nextData.measures.length - 1) {
+      measureIndex += 1;
+      stepIndex = 0;
+      continue;
+    }
+
+    if (isPlaying) {
+      return {
+        nextData,
+        nextSelected: {
+          ...selected,
+          measureIndex,
+          stepIndex: Math.max(0, displaySteps - displayUnit),
+        },
+        didAppendMeasure,
+      };
+    }
+
+    nextData = appendEmptyMeasure(nextData);
+    didAppendMeasure = true;
+    measureIndex += 1;
+    stepIndex = 0;
   }
 
-  const isAtLastMeasure = selected.measureIndex === totalMeasures - 1;
-  if (isPlaying || !isAtLastMeasure) {
-    return {
-      nextData: data,
-      nextSelected: {
-        ...selected,
-        measureIndex: totalMeasures - 1,
-        stepIndex: STEPS_PER_MEASURE - 1,
-      },
-      didAppendMeasure: false,
-    };
-  }
-
-  const appendedData = appendEmptyMeasure(data);
-  const overflowStep = absoluteStep - maxStepExclusive;
   return {
-    nextData: appendedData,
+    nextData,
     nextSelected: {
       ...selected,
-      measureIndex: totalMeasures,
-      stepIndex: Math.min(STEPS_PER_MEASURE - 1, Math.max(0, overflowStep)),
+      measureIndex,
+      stepIndex,
     },
-    didAppendMeasure: true,
+    didAppendMeasure,
   };
 };
 
@@ -227,31 +248,28 @@ export default function Home() {
       : SIXTEENTH_STEPS * 2;
   const displaySlots = STEPS_PER_MEASURE / displayUnit;
   const stepWidth = tabMeasureWidth / displaySlots;
-  const visibleSteps = useMemo(
-    () => Array.from({ length: displaySlots }, (_, index) => index * displayUnit),
-    [displaySlots, displayUnit]
-  );
-  const blockedStepSet = useMemo(() => {
-    const set = new Set<number>();
-    visibleSteps.forEach((step) => {
-      if (isStepBlockedForNewStart(events, step)) {
-        set.add(step);
-      }
-    });
-    return set;
-  }, [events, visibleSteps]);
   const blockedStepsByMeasure = useMemo(
     () =>
-      tabData.measures.map((measure) => {
+      tabData.measures.map((measure, index) => {
+        const visibleSteps = getVisibleStepsForMeasure(
+          getMeasureDisplaySteps(measure.events, displayUnit),
+          displayUnit
+        );
         const set = new Set<number>();
         visibleSteps.forEach((step) => {
-          if (isStepBlockedForNewStart(measure.events, step)) {
+          if (
+            isStepBlockedForNewStart(
+              measure.events,
+              step,
+              getMeasureDisplaySteps(measure.events, displayUnit)
+            )
+          ) {
             set.add(step);
           }
         });
         return set;
       }),
-    [tabData.measures, visibleSteps]
+    [displayUnit, tabData.measures]
   );
   const overflowingMeasureSet = useMemo(
     () =>
@@ -262,15 +280,44 @@ export default function Home() {
       ),
     [tabData.measures]
   );
+  const measureDisplayStepsByMeasure = useMemo(
+    () =>
+      tabData.measures.map((measure) =>
+        getMeasureDisplaySteps(measure.events, displayUnit)
+      ),
+    [displayUnit, tabData.measures]
+  );
+  const measureVisibleStepsByMeasure = useMemo(
+    () =>
+      measureDisplayStepsByMeasure.map((displaySteps) =>
+        getVisibleStepsForMeasure(displaySteps, displayUnit)
+      ),
+    [displayUnit, measureDisplayStepsByMeasure]
+  );
+  const measureDisplaySlotsByMeasure = useMemo(
+    () => measureVisibleStepsByMeasure.map((steps) => steps.length),
+    [measureVisibleStepsByMeasure]
+  );
+  const selectedMeasureDisplaySteps =
+    measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
+  const blockedStepSet = blockedStepsByMeasure[selectedMeasureIndex] ?? new Set<number>();
   const measureGrids = useMemo(
     () =>
-      tabData.measures.map((measure, i) => {
-        const cols = overflowingMeasureSet.has(i)
-          ? getMeasureOccupiedSteps(measure.events)
-          : STEPS_PER_MEASURE;
-        return eventsToGrid(measure.events, cols);
-      }),
-    [tabData.measures, overflowingMeasureSet]
+      tabData.measures.map((measure, index) =>
+        eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? STEPS_PER_MEASURE)
+      ),
+    [measureDisplayStepsByMeasure, tabData.measures]
+  );
+  const displayCells = useMemo(
+    () =>
+      measureVisibleStepsByMeasure.flatMap((visibleSteps, measureIndex) =>
+        visibleSteps.map((stepIndex, slotIndex) => ({
+          measureIndex,
+          stepIndex,
+          slotIndex,
+        }))
+      ),
+    [measureVisibleStepsByMeasure]
   );
 
   const { commit: commitTabData, undo: handleUndo, redo: handleRedo, canUndo, canRedo } = useUndoRedo({
@@ -287,8 +334,13 @@ export default function Home() {
     }, []),
   });
 
-  const getNearestSelectableStep = (targetStep: number): number => {
-    const selectable = visibleSteps.filter((step) => !blockedStepSet.has(step));
+  const getNearestSelectableStep = (
+    targetStep: number,
+    measureIndex = selectedMeasureIndex
+  ): number => {
+    const visibleSteps = measureVisibleStepsByMeasure[measureIndex] ?? [0];
+    const blockedSteps = blockedStepsByMeasure[measureIndex] ?? new Set<number>();
+    const selectable = visibleSteps.filter((step) => !blockedSteps.has(step));
     if (selectable.length === 0) {
       return 0;
     }
@@ -335,26 +387,33 @@ export default function Home() {
       0,
       Math.min(tabData.measures.length - 1, next.measureIndex)
     );
-    const clampedStep = Math.max(0, Math.min(STEPS_PER_MEASURE - 1, next.stepIndex));
+    const displaySteps =
+      measureDisplayStepsByMeasure[clampedMeasure] ?? STEPS_PER_MEASURE;
+    const clampedStep = Math.max(0, Math.min(displaySteps - 1, next.stepIndex));
     setSingleCellSelection({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
-      stepIndex: getNearestSelectableStep(clampedStep),
+      stepIndex: getNearestSelectableStep(clampedStep, clampedMeasure),
     });
   };
 
   const moveHorizontal = (delta: number) => {
-    const current = getNearestSelectableStep(selected.stepIndex);
-    const currentIndex = visibleSteps.indexOf(current);
+    const currentVisibleSteps = measureVisibleStepsByMeasure[selected.measureIndex] ?? [0];
+    const currentBlockedSteps = blockedStepsByMeasure[selected.measureIndex] ?? new Set<number>();
+    const current = getNearestSelectableStep(selected.stepIndex, selected.measureIndex);
+    const currentIndex = currentVisibleSteps.indexOf(current);
     if (currentIndex === -1) {
-      setSingleCellSelection({ ...selected, stepIndex: getNearestSelectableStep(0) });
+      setSingleCellSelection({
+        ...selected,
+        stepIndex: getNearestSelectableStep(0, selected.measureIndex),
+      });
       return;
     }
 
     let nextIndex = currentIndex + delta;
-    while (nextIndex >= 0 && nextIndex < visibleSteps.length) {
-      const candidate = visibleSteps[nextIndex];
-      if (!blockedStepSet.has(candidate)) {
+    while (nextIndex >= 0 && nextIndex < currentVisibleSteps.length) {
+      const candidate = currentVisibleSteps[nextIndex];
+      if (!currentBlockedSteps.has(candidate)) {
         setSingleCellSelection({ ...selected, stepIndex: candidate });
         return;
       }
@@ -368,7 +427,8 @@ export default function Home() {
         tabData,
         { ...selected, stepIndex: current },
         advanceAmount,
-        isPlaying
+        isPlaying,
+        displayUnit
       );
       if (result.didAppendMeasure) {
         commitTabData(result.nextData);
@@ -378,10 +438,12 @@ export default function Home() {
     }
 
     if (delta < 0 && current === 0 && selected.measureIndex > 0) {
+      const prevMeasureIndex = selected.measureIndex - 1;
+      const prevVisibleSteps = measureVisibleStepsByMeasure[prevMeasureIndex] ?? [0];
       setSingleCellSelection({
         ...selected,
-        measureIndex: selected.measureIndex - 1,
-        stepIndex: STEPS_PER_MEASURE - 1,
+        measureIndex: prevMeasureIndex,
+        stepIndex: prevVisibleSteps[prevVisibleSteps.length - 1] ?? 0,
       });
       return;
     }
@@ -400,19 +462,36 @@ export default function Home() {
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
 
-    if (!canPlaceEvent(placementSource, selected.stepIndex, activeInputLen, { ignoreStep: selected.stepIndex })) {
+    if (
+      !canPlaceEvent(
+        placementSource,
+        selected.stepIndex,
+        activeInputLen,
+        { ignoreStep: selected.stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(placementSource, selected, safeFret, activeInputLen);
+    const nextEvents = upsertNoteAtCell(
+      placementSource,
+      selected,
+      safeFret,
+      activeInputLen,
+      selectedMeasureDisplaySteps,
+      true
+    );
     const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
-    const result = getNextCursorPositionWithAutoAppend(
-      updatedData,
-      selected,
-      activeInputLen,
-      isPlaying
-    );
+      const result = getNextCursorPositionWithAutoAppend(
+        updatedData,
+        selected,
+        activeInputLen,
+        isPlaying,
+        displayUnit
+      );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
     playNotePreview(updatedData, selectedMeasureIndex, selected.stepIndex);
@@ -446,7 +525,8 @@ export default function Home() {
         measureEvents,
         nextSelected.stepIndex,
         stringNumber,
-        safeFret
+        safeFret,
+        selectedMeasureDisplaySteps
       );
       const remainingEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
       const finalEvents =
@@ -466,10 +546,26 @@ export default function Home() {
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
 
-    if (!canPlaceEvent(placementSource, nextSelected.stepIndex, activeInputLen, { ignoreStep: nextSelected.stepIndex })) {
+    if (
+      !canPlaceEvent(
+        placementSource,
+        nextSelected.stepIndex,
+        activeInputLen,
+        { ignoreStep: nextSelected.stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(placementSource, nextSelected, safeFret, activeInputLen);
+    const nextEvents = upsertNoteAtCell(
+      placementSource,
+      nextSelected,
+      safeFret,
+      activeInputLen,
+      selectedMeasureDisplaySteps,
+      true
+    );
     const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
@@ -477,7 +573,8 @@ export default function Home() {
       updatedData,
       nextSelected,
       activeInputLen,
-      isPlaying
+      isPlaying,
+      displayUnit
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
@@ -485,17 +582,33 @@ export default function Home() {
   };
 
   const placeRestAtStep = (stepIndex: number) => {
-    if (!canPlaceEvent(events, stepIndex, activeInputLen, { ignoreStep: stepIndex })) {
+    if (
+      !canPlaceEvent(
+        events,
+        stepIndex,
+        activeInputLen,
+        { ignoreStep: stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, activeInputLen);
+    const nextEvents = upsertRestAtStep(
+      measureEvents,
+      stepIndex,
+      activeInputLen,
+      selectedMeasureDisplaySteps,
+      true
+    );
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
       { ...selected, stepIndex },
       activeInputLen,
-      isPlaying
+      isPlaying,
+      displayUnit
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
@@ -532,10 +645,26 @@ export default function Home() {
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEvents;
 
-    if (!canPlaceEvent(placementSource, nextSelected.stepIndex, len, { ignoreStep: nextSelected.stepIndex })) {
+    if (
+      !canPlaceEvent(
+        placementSource,
+        nextSelected.stepIndex,
+        len,
+        { ignoreStep: nextSelected.stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(placementSource, nextSelected, safeFret, len);
+    const nextEvents = upsertNoteAtCell(
+      placementSource,
+      nextSelected,
+      safeFret,
+      len,
+      selectedMeasureDisplaySteps,
+      true
+    );
 
     // Apply dot/triplet modifier to the inserted event
     const modifiedEvents = nextEvents.map((ev) => {
@@ -554,7 +683,8 @@ export default function Home() {
       updatedData,
       nextSelected,
       len,
-      isPlaying
+      isPlaying,
+      displayUnit
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
@@ -568,11 +698,26 @@ export default function Home() {
   const placeRestWithFlick = (len: number, modifier: DurationModifier) => {
     if (isPlaying) return;
     const stepIndex = selected.stepIndex;
-    if (!canPlaceEvent(events, stepIndex, len, { ignoreStep: stepIndex })) {
+    if (
+      !canPlaceEvent(
+        events,
+        stepIndex,
+        len,
+        { ignoreStep: stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertRestAtStep(measureEvents, stepIndex, len);
+    const nextEvents = upsertRestAtStep(
+      measureEvents,
+      stepIndex,
+      len,
+      selectedMeasureDisplaySteps,
+      true
+    );
 
     // Apply dot/triplet modifier
     const modifiedEvents = nextEvents.map((ev) => {
@@ -590,7 +735,8 @@ export default function Home() {
       updatedData,
       { ...selected, stepIndex },
       len,
-      isPlaying
+      isPlaying,
+      displayUnit
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
@@ -660,12 +806,17 @@ export default function Home() {
     if (isPlaying || selectedMeasureIndex <= 0) {
       return;
     }
-    setSelected((prev) => ({
-      ...prev,
-      measureIndex: Math.max(0, prev.measureIndex - 1),
-      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
-    }));
+    setSelected((prev) => {
+      const nextMeasureIndex = Math.max(0, prev.measureIndex - 1);
+      const nextDisplaySteps =
+        measureDisplayStepsByMeasure[nextMeasureIndex] ?? STEPS_PER_MEASURE;
+      return {
+        ...prev,
+        measureIndex: nextMeasureIndex,
+        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+        stepIndex: Math.max(0, Math.min(nextDisplaySteps - 1, prev.stepIndex)),
+      };
+    });
   };
 
   const handleNextMeasure = () => {
@@ -682,17 +833,22 @@ export default function Home() {
         ...prev,
         measureIndex: totalMeasures,
         rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+        stepIndex: 0,
       }));
       return;
     }
 
-    setSelected((prev) => ({
-      ...prev,
-      measureIndex: Math.min(totalMeasures - 1, prev.measureIndex + 1),
-      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
-    }));
+    setSelected((prev) => {
+      const nextMeasureIndex = Math.min(totalMeasures - 1, prev.measureIndex + 1);
+      const nextDisplaySteps =
+        measureDisplayStepsByMeasure[nextMeasureIndex] ?? STEPS_PER_MEASURE;
+      return {
+        ...prev,
+        measureIndex: nextMeasureIndex,
+        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
+        stepIndex: Math.max(0, Math.min(nextDisplaySteps - 1, prev.stepIndex)),
+      };
+    });
   };
 
   const handleAddMeasure = () => {
@@ -788,11 +944,14 @@ export default function Home() {
       return;
     }
 
+    const targetDisplaySteps =
+      measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const nextEvents = pasteRangeClipboardIntoMeasure(
       measureEvents,
       selected.stepIndex,
-      rangeClipboard
+      rangeClipboard,
+      targetDisplaySteps
     );
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
   };
@@ -807,7 +966,14 @@ export default function Home() {
       ...prev,
       measureIndex: Math.min(selectedMeasureIndex, totalMeasures - 2),
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-      stepIndex: Math.max(0, Math.min(STEPS_PER_MEASURE - 1, prev.stepIndex)),
+      stepIndex: Math.max(
+        0,
+        Math.min(
+          (measureDisplayStepsByMeasure[Math.min(selectedMeasureIndex, totalMeasures - 2)] ??
+            STEPS_PER_MEASURE) - 1,
+          prev.stepIndex
+        )
+      ),
     }));
   };
 
@@ -829,7 +995,7 @@ export default function Home() {
     const nextEvents = deleteCellOrRestAtStep(measureEvents, {
       ...selected,
       stepIndex: owningStep,
-    });
+    }, selectedMeasureDisplaySteps);
     const remainingEvent = findEventAtStep(nextEvents, owningStep);
     const finalEvents =
       oldEvent && !remainingEvent
@@ -853,7 +1019,7 @@ export default function Home() {
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
     const oldEvent = findEventAtStep(measureEvents, owningStep);
-    const nextEvents = sanitizeEvents(measureEvents, STEPS_PER_MEASURE, true).filter(
+    const nextEvents = sanitizeEvents(measureEvents, selectedMeasureDisplaySteps, true).filter(
       (event) => event.step !== owningStep
     );
     const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift);
@@ -900,14 +1066,25 @@ export default function Home() {
     const placementSource =
       autoShift && oldEvent ? placementEvents : measureEventsForLen;
 
-    if (!canPlaceEvent(placementSource, selected.stepIndex, len, { ignoreStep: selected.stepIndex })) {
+    if (
+      !canPlaceEvent(
+        placementSource,
+        selected.stepIndex,
+        len,
+        { ignoreStep: selected.stepIndex },
+        selectedMeasureDisplaySteps,
+        true
+      )
+    ) {
       return;
     }
 
     const nextEventsForLen = updateEventLengthAtStep(
       placementSource,
       selected.stepIndex,
-      len
+      len,
+      selectedMeasureDisplaySteps,
+      true
     );
     const newEvent = findEventAtStep(nextEventsForLen, selected.stepIndex);
     const finalEvents = applySequentialShift(
@@ -1022,7 +1199,10 @@ export default function Home() {
     }
   };
 
-  const durationPreviewEndStep = Math.min(STEPS_PER_MEASURE, selected.stepIndex + activeInputLen);
+  const durationPreviewEndStep = Math.min(
+    selectedMeasureDisplaySteps,
+    selected.stepIndex + activeInputLen
+  );
   // Duration preview is a time-band highlight. It depends only on measure + step span,
   // never on the selected string row or whether the cell already has a value.
   const isDurationPreviewStep = (measureIndex: number, stepIndex: number): boolean =>
@@ -1034,13 +1214,17 @@ export default function Home() {
     () => tabData.measures.map((measure) => measure.events),
     [tabData.measures]
   );
-  const totalDisplaySlots = displaySlots * totalMeasures;
-  const measureSlotWidth = stepWidth * displaySlots;
-  const measureStartXs = useMemo(
-    () => Array.from({ length: totalMeasures + 1 }, (_, index) => tabLabelWidth + index * measureSlotWidth),
-    [measureSlotWidth, tabLabelWidth, totalMeasures]
-  );
-  const timelineWidth = tabLabelWidth + measureSlotWidth * totalMeasures;
+  const totalDisplaySlots = displayCells.length;
+  const measureStartXs = useMemo(() => {
+    const starts = [tabLabelWidth];
+    let cursor = tabLabelWidth;
+    measureDisplaySlotsByMeasure.forEach((slotCount) => {
+      cursor += slotCount * stepWidth;
+      starts.push(cursor);
+    });
+    return starts;
+  }, [measureDisplaySlotsByMeasure, stepWidth, tabLabelWidth]);
+  const timelineWidth = measureStartXs[measureStartXs.length - 1] ?? tabLabelWidth;
   const currentGlobalStep = playCursor ? toGlobalStep(playCursor) : null;
   const currentPlaybackMeasureIndex =
     currentGlobalStep === null
@@ -1162,7 +1346,11 @@ export default function Home() {
       // If cursor is on a blocked step (inside an event's duration),
       // snap to that event's start step so the full range is highlighted
       if (blockedStepSet.has(prev.stepIndex)) {
-        const owningStep = findOwningEventStep(events, prev.stepIndex);
+        const owningStep = findOwningEventStep(
+          events,
+          prev.stepIndex,
+          selectedMeasureDisplaySteps
+        );
         if (owningStep !== prev.stepIndex) {
           return { ...prev, stepIndex: owningStep };
         }
@@ -1359,6 +1547,7 @@ export default function Home() {
                   currentCursor={playCursor}
                   stepWidth={stepWidth}
                   stepUnit={displayUnit}
+                  measureDisplaySlots={measureDisplaySlotsByMeasure}
                   measureStartXs={measureStartXs}
                   timelineWidth={timelineWidth}
                   overflowingMeasures={overflowingMeasureSet}
@@ -1387,10 +1576,8 @@ export default function Home() {
                     <div className={styles.stringLabel}>
                       {TUNING[rowIndex]}
                     </div>
-                    {Array.from({ length: totalDisplaySlots }, (_, globalSlotIndex) => {
-                      const measureIndex = Math.floor(globalSlotIndex / displaySlots);
-                      const slotIndex = globalSlotIndex % displaySlots;
-                      const stepIndex = visibleSteps[slotIndex] ?? 0;
+                    {displayCells.map(({ measureIndex, stepIndex }, globalSlotIndex) => {
+                      const measureEvents = getMeasureEvents(tabData, measureIndex);
                       const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
                       const displayValue =
                         cell?.fret !== null && cell?.fret !== undefined
@@ -1439,7 +1626,11 @@ export default function Home() {
                               return;
                             }
                             if (isBlocked) {
-                              const owningStep = findOwningEventStep(events, stepIndex);
+                              const owningStep = findOwningEventStep(
+                                measureEvents,
+                                stepIndex,
+                                measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE
+                              );
                               setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
                               return;
                             }

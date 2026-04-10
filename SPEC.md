@@ -67,6 +67,6 @@
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
-- overflow event は内部保持（`allowOverflow=true` sanitize）・表示警告（赤バーライン）・再生スキップまで対応済み
-- 「overflow 分だけ measure 幅を伸ばして完全に編集可能にする」仕様は未実装。TAB / 五線譜 / カーソル（selectedStep > 95）/ 自動スクロール / range selection の範囲拡張を含む再設計が必要
+- overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
+- 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある
 - 現在の措置は横スクロール1行レイアウト前提。将来の折り返し複数行レイアウト対応時は measure ごとの `displayColumns` 計算を導入する予定
