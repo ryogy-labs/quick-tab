@@ -448,6 +448,9 @@ const clampLenAllowOverflow = (len: number): number => clampInt(len, 1, STEPS_PE
 const clampStepByMeasure = (value: number, stepsPerMeasure: number): number =>
   clampInt(value, 0, stepsPerMeasure - 1);
 
+const clampDisplayStep = (value: number, stepLimit: number): number =>
+  clampInt(value, 0, Math.max(0, stepLimit - 1));
+
 const clampLenByMeasure = (len: number, step: number, stepsPerMeasure: number): number => {
   const maxLen = stepsPerMeasure - step;
   return clampInt(len, 1, Math.max(1, maxLen));
@@ -594,8 +597,8 @@ export const isStepBlockedForNewStart = (
   stepIndex: number,
   stepsPerMeasure = STEPS_PER_MEASURE
 ): boolean => {
-  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
-  return sanitizeEvents(events, stepsPerMeasure).some(
+  const safeStep = clampDisplayStep(stepIndex, stepsPerMeasure);
+  return sanitizeEvents(events, stepsPerMeasure, true).some(
     (event) => safeStep > event.step && safeStep < event.step + event.len
   );
 };
@@ -607,8 +610,8 @@ export const findOwningEventStep = (
   stepIndex: number,
   stepsPerMeasure = STEPS_PER_MEASURE
 ): number => {
-  const safeStep = clampStepByMeasure(stepIndex, stepsPerMeasure);
-  const owning = sanitizeEvents(events, stepsPerMeasure).find(
+  const safeStep = clampDisplayStep(stepIndex, stepsPerMeasure);
+  const owning = sanitizeEvents(events, stepsPerMeasure, true).find(
     (event) => safeStep > event.step && safeStep < event.step + event.len
   );
   return owning ? owning.step : safeStep;
