@@ -311,7 +311,7 @@
 }
 
 .blocked {
-  cursor: not-allowed;
+  cursor: pointer;
 }
 
 .cell:disabled {
@@ -320,6 +320,14 @@
 
 .cell.measureOverflow {
   background: linear-gradient(0deg, #ffd5d555, #ffd5d555);
+}
+
+.cell.measureOverflow.durationPreview {
+  background: linear-gradient(0deg, #b8ddff55, #b8ddff55);
+}
+
+.cell.measureOverflow.selected {
+  background: linear-gradient(0deg, #d8ecff55, #d8ecff55);
 }
 
 /* ── Input Area (Fretboard + Rest) ── */

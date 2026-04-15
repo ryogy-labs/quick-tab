@@ -407,12 +407,12 @@ export default function StaffPreview({
           const flagCount = duration === "16" ? 2 : duration === "8" ? 1 : 0;
 
           return (
-            <g key={`note-${event.step}`}>
+            <g key={`note-${event.measureIndex}-${event.step}`}>
               {event.notes.map((note, idx) => (
-                <g key={`head-${event.step}-${idx}`}>
+                <g key={`head-${event.measureIndex}-${event.step}-${idx}`}>
                   {ledgerLineYs(note.y).map((lineY) => (
                     <line
-                      key={`ledger-${event.step}-${idx}-${lineY}`}
+                      key={`ledger-${event.measureIndex}-${event.step}-${idx}-${lineY}`}
                       x1={note.x - 9}
                       x2={note.x + 9}
                       y1={lineY}
@@ -464,7 +464,7 @@ export default function StaffPreview({
                   const endX = stemUp ? stemX + 9 : stemX - 9;
                   return (
                     <path
-                      key={`flag-${event.step}-${i}`}
+                      key={`flag-${event.measureIndex}-${event.step}-${i}`}
                       d={`M ${stemX} ${startY} Q ${stemX} ${c1Y} ${endX} ${endY}`}
                       fill="none"
                       stroke={noteStroke}
@@ -476,7 +476,7 @@ export default function StaffPreview({
               {/* Dotted note indicator */}
               {event.dot && event.notes.map((note, idx) => (
                 <circle
-                  key={`dot-${event.step}-${idx}`}
+                  key={`dot-${event.measureIndex}-${event.step}-${idx}`}
                   cx={note.x + NOTE_RADIUS_X + 5}
                   cy={note.y}
                   r={2}

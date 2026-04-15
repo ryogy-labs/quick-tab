@@ -173,7 +173,7 @@ export default function Home() {
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
-  const [autoShift, setAutoShift] = useState(false);
+  const [autoShift, setAutoShift] = useState(true);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -239,8 +239,7 @@ export default function Home() {
     );
     return Math.min(globalMin, localMin);
   }, STEPS_PER_MEASURE);
-  const shouldRenderEveryStep =
-    selectedRange !== null || activeInputLen > SIXTEENTH_STEPS;
+  const shouldRenderEveryStep = activeInputLen > SIXTEENTH_STEPS;
   const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
   const displayUnit =
     shouldRenderEveryStep || effectiveMinLen <= SIXTEENTH_STEPS
@@ -352,6 +351,20 @@ export default function Home() {
   const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
     data.measures.at(measureIndex)?.events ?? [];
 
+  const getClampedDisplayStep = (stepIndex: number, measureIndex: number): number => {
+    const displaySteps =
+      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    return Math.max(0, Math.min(displaySteps - 1, stepIndex));
+  };
+
+  const getRangeSelectableStep = (measureIndex: number, stepIndex: number): number => {
+    const clampedStep = getClampedDisplayStep(stepIndex, measureIndex);
+    const measureEvents = getMeasureEvents(tabData, measureIndex);
+    const displaySteps =
+      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    return findOwningEventStep(measureEvents, clampedStep, displaySteps);
+  };
+
   const updateMeasureEvents = (
     data: TabDataV3,
     measureIndex: number,
@@ -387,13 +400,13 @@ export default function Home() {
       0,
       Math.min(tabData.measures.length - 1, next.measureIndex)
     );
-    const displaySteps =
-      measureDisplayStepsByMeasure[clampedMeasure] ?? STEPS_PER_MEASURE;
-    const clampedStep = Math.max(0, Math.min(displaySteps - 1, next.stepIndex));
     setSingleCellSelection({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
-      stepIndex: getNearestSelectableStep(clampedStep, clampedMeasure),
+      stepIndex: getNearestSelectableStep(
+        getClampedDisplayStep(next.stepIndex, clampedMeasure),
+        clampedMeasure
+      ),
     });
   };
 
@@ -776,10 +789,8 @@ export default function Home() {
       return;
     }
 
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      const el = document.elementFromPoint(touch.clientX, touch.clientY) as HTMLElement | null;
+    const updateRangeFromPoint = (clientX: number, clientY: number) => {
+      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
       const cell = el?.closest("[data-measure-index]") as HTMLElement | null;
       if (!cell) {
         return;
@@ -791,8 +802,22 @@ export default function Home() {
       }
     };
 
+    const handleMouseMove = (e: MouseEvent) => {
+      updateRangeFromPoint(e.clientX, e.clientY);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      updateRangeFromPoint(touch.clientX, touch.clientY);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
     grid.addEventListener("touchmove", handleTouchMove, { passive: false });
-    return () => grid.removeEventListener("touchmove", handleTouchMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      grid.removeEventListener("touchmove", handleTouchMove);
+    };
   }, [isDraggingRange]);
 
   useEffect(() => {
@@ -808,13 +833,11 @@ export default function Home() {
     }
     setSelected((prev) => {
       const nextMeasureIndex = Math.max(0, prev.measureIndex - 1);
-      const nextDisplaySteps =
-        measureDisplayStepsByMeasure[nextMeasureIndex] ?? STEPS_PER_MEASURE;
       return {
         ...prev,
         measureIndex: nextMeasureIndex,
         rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: Math.max(0, Math.min(nextDisplaySteps - 1, prev.stepIndex)),
+        stepIndex: getClampedDisplayStep(prev.stepIndex, nextMeasureIndex),
       };
     });
   };
@@ -840,13 +863,11 @@ export default function Home() {
 
     setSelected((prev) => {
       const nextMeasureIndex = Math.min(totalMeasures - 1, prev.measureIndex + 1);
-      const nextDisplaySteps =
-        measureDisplayStepsByMeasure[nextMeasureIndex] ?? STEPS_PER_MEASURE;
       return {
         ...prev,
         measureIndex: nextMeasureIndex,
         rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: Math.max(0, Math.min(nextDisplaySteps - 1, prev.stepIndex)),
+        stepIndex: getClampedDisplayStep(prev.stepIndex, nextMeasureIndex),
       };
     });
   };
@@ -905,7 +926,10 @@ export default function Home() {
   };
 
   const handleRangeMouseDown = (measureIndex: number, stepIndex: number) => {
-    const anchor = { measureIndex, stepIndex };
+    const anchor = {
+      measureIndex,
+      stepIndex: getRangeSelectableStep(measureIndex, stepIndex),
+    };
     didDragRangeRef.current = false;
     setDragSelectionAnchor(anchor);
     setSelectedRange(normalizeStepRange(anchor, anchor));
@@ -916,16 +940,17 @@ export default function Home() {
     if (!isDraggingRange || !dragSelectionAnchor) {
       return;
     }
+    const nextStepIndex = getRangeSelectableStep(measureIndex, stepIndex);
     if (
       dragSelectionAnchor.measureIndex !== measureIndex ||
-      dragSelectionAnchor.stepIndex !== stepIndex
+      dragSelectionAnchor.stepIndex !== nextStepIndex
     ) {
       didDragRangeRef.current = true;
     }
     setSelectedRange(
       normalizeStepRange(dragSelectionAnchor, {
         measureIndex,
-        stepIndex,
+        stepIndex: nextStepIndex,
       })
     );
   };
@@ -966,13 +991,9 @@ export default function Home() {
       ...prev,
       measureIndex: Math.min(selectedMeasureIndex, totalMeasures - 2),
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-      stepIndex: Math.max(
-        0,
-        Math.min(
-          (measureDisplayStepsByMeasure[Math.min(selectedMeasureIndex, totalMeasures - 2)] ??
-            STEPS_PER_MEASURE) - 1,
-          prev.stepIndex
-        )
+      stepIndex: getClampedDisplayStep(
+        prev.stepIndex,
+        Math.min(selectedMeasureIndex, totalMeasures - 2)
       ),
     }));
   };
@@ -990,7 +1011,11 @@ export default function Home() {
       return;
     }
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
+    const owningStep = findOwningEventStep(
+      measureEvents,
+      selected.stepIndex,
+      selectedMeasureDisplaySteps
+    );
     const oldEvent = findEventAtStep(measureEvents, owningStep);
     const nextEvents = deleteCellOrRestAtStep(measureEvents, {
       ...selected,
@@ -1017,7 +1042,11 @@ export default function Home() {
     }
 
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const owningStep = findOwningEventStep(measureEvents, selected.stepIndex);
+    const owningStep = findOwningEventStep(
+      measureEvents,
+      selected.stepIndex,
+      selectedMeasureDisplaySteps
+    );
     const oldEvent = findEventAtStep(measureEvents, owningStep);
     const nextEvents = sanitizeEvents(measureEvents, selectedMeasureDisplaySteps, true).filter(
       (event) => event.step !== owningStep
@@ -1041,13 +1070,18 @@ export default function Home() {
     setInputLen(len);
     setIsRestMode(nextRestMode);
 
-    const currentEvent = findEventAtStep(events, selected.stepIndex);
+    const targetStep = findOwningEventStep(
+      events,
+      selected.stepIndex,
+      selectedMeasureDisplaySteps
+    );
+    const currentEvent = findEventAtStep(events, targetStep);
     if (!currentEvent) {
       return;
     }
 
     if (!nextRestMode) {
-      const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
+      const selectedFret = getCellFret(events, selected.rowIndex, targetStep);
       if (selectedFret === null) {
         return;
       }
@@ -1060,7 +1094,7 @@ export default function Home() {
     const measureEventsForLen = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEventsForLen,
-      selected.stepIndex,
+      targetStep,
       autoShift
     );
     const placementSource =
@@ -1069,9 +1103,9 @@ export default function Home() {
     if (
       !canPlaceEvent(
         placementSource,
-        selected.stepIndex,
+        targetStep,
         len,
-        { ignoreStep: selected.stepIndex },
+        { ignoreStep: targetStep },
         selectedMeasureDisplaySteps,
         true
       )
@@ -1081,12 +1115,12 @@ export default function Home() {
 
     const nextEventsForLen = updateEventLengthAtStep(
       placementSource,
-      selected.stepIndex,
+      targetStep,
       len,
       selectedMeasureDisplaySteps,
       true
     );
-    const newEvent = findEventAtStep(nextEventsForLen, selected.stepIndex);
+    const newEvent = findEventAtStep(nextEventsForLen, targetStep);
     const finalEvents = applySequentialShift(
       nextEventsForLen,
       deferredEvents,
@@ -1095,6 +1129,7 @@ export default function Home() {
       autoShift
     );
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
+    setSelected((prev) => ({ ...prev, stepIndex: targetStep }));
   };
 
   const handleDigitInput = (digit: string) => {
@@ -1210,6 +1245,17 @@ export default function Home() {
     measureIndex === selected.measureIndex &&
     stepIndex >= selected.stepIndex &&
     stepIndex < durationPreviewEndStep;
+  const isRangeHighlightedStep = (measureIndex: number, stepIndex: number): boolean => {
+    if (!selectedRange) {
+      return false;
+    }
+
+    const measureEvents = getMeasureEvents(tabData, measureIndex);
+    const displaySteps =
+      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const owningStep = findOwningEventStep(measureEvents, stepIndex, displaySteps);
+    return isStepInRange(selectedRange, measureIndex, owningStep);
+  };
   const measuresEvents = useMemo(
     () => tabData.measures.map((measure) => measure.events),
     [tabData.measures]
@@ -1593,7 +1639,7 @@ export default function Home() {
                         playCursor?.stepIndex === stepIndex;
                       const isStepHighlighted =
                         selectedRange !== null
-                          ? isStepInRange(selectedRange, measureIndex, stepIndex)
+                          ? isRangeHighlightedStep(measureIndex, stepIndex)
                           : isDurationPreviewStep(measureIndex, stepIndex);
                       const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
                       const isOverflowingMeasure = overflowingMeasureSet.has(measureIndex);
