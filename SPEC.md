@@ -39,7 +39,8 @@
 ## Data Model
 - 永続化される主データは `localStorage` の `quick-tab:mvp:v3` に保存する
 - 旧データ `quick-tab:mvp:v2`, `quick-tab:mvp:v1` が存在する場合は、初回読込時に v3 モデルへ normalize して取り込む
-- TAB データの基本構造は `TabDataV3 = { version, tempo, timeSig, stepsPerMeasure, tuning, measures }`
+- TAB データの基本構造は `TabDataV3 = { version, tempo, timeSig, key?, stepsPerMeasure, tuning, measures }`
+- `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabDataV3` でバリデーションし、不正値は `"C"` にフォールバックする
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
 - Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する
 - Rest event は `step`, `len`, `rest: true`, optional `dot` / `triplet` を持つ
