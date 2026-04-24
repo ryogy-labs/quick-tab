@@ -28,6 +28,9 @@ type PitchToken = {
 type NoteRender = {
   x: number;
   y: number;
+  string?: number;
+  fret?: number;
+  tie?: boolean;
   accidental: "#" | "b" | "";
 };
 
@@ -233,6 +236,16 @@ type BeamGroupData = {
   primaryBeamY: number;
 };
 
+type TieRender = {
+  key: string;
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+  isActive: boolean;
+  archDirection: 1 | -1;
+};
+
 const computeBeamGroups = (renderEvents: EventRender[]): BeamGroupData[] => {
   const byMeasure = new Map<number, EventRender[]>();
   for (const e of renderEvents) {
@@ -322,10 +335,10 @@ const buildRenderEvents = (
         }
 
         const notes = event.notes
-          .map((note) => {
+          .reduce<NoteRender[]>((acc, note) => {
             const rowIndex = note.string - 1;
             const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
-            if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) return null;
+            if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) return acc;
             // Guitar notation is written one octave above sounding pitch.
             const writtenMidi = openMidi + note.fret + 12;
             const pitchClass = ((writtenMidi % 12) + 12) % 12;
@@ -340,9 +353,16 @@ const buildRenderEvents = (
               }
             }
 
-            return { x, y: pos.y, accidental };
-          })
-          .filter((item): item is NoteRender => item !== null)
+            acc.push({
+              x,
+              y: pos.y,
+              string: note.string,
+              fret: note.fret,
+              ...(note.tie ? { tie: true } : {}),
+              accidental,
+            });
+            return acc;
+          }, [])
           .sort((a, b) => a.y - b.y);
 
         return {
@@ -400,6 +420,67 @@ export default function StaffPreview({
   );
 
   const beamGroups = useMemo(() => computeBeamGroups(renderEvents), [renderEvents]);
+
+  const tieRenders = useMemo<TieRender[]>(() => {
+    const sortedEvents = [...renderEvents].sort((a, b) => {
+      const measureDelta = a.measureIndex - b.measureIndex;
+      return measureDelta !== 0 ? measureDelta : a.step - b.step;
+    });
+    const ties: TieRender[] = [];
+
+    sortedEvents.forEach((event, eventIndex) => {
+      if (event.isRest) {
+        return;
+      }
+
+      event.notes.forEach((note, noteIndex) => {
+        if (!note.tie) {
+          return;
+        }
+
+        const previousEvent = sortedEvents
+          .slice(0, eventIndex)
+          .reverse()
+          .find((candidate) =>
+            !candidate.isRest &&
+            candidate.notes.some(
+              (candidateNote) =>
+                note.string !== undefined &&
+                note.fret !== undefined &&
+                candidateNote.string === note.string &&
+                candidateNote.fret === note.fret
+            )
+          );
+        const previousNote = previousEvent?.notes.find(
+          (candidateNote) =>
+            note.string !== undefined &&
+            note.fret !== undefined &&
+            candidateNote.string === note.string &&
+            candidateNote.fret === note.fret
+        );
+
+        if (!previousEvent || !previousNote) {
+          return;
+        }
+
+        const isActive =
+          currentCursor !== null &&
+          currentCursor.measureIndex === event.measureIndex &&
+          currentCursor.stepIndex === event.step;
+        ties.push({
+          key: `tie-${event.measureIndex}-${event.step}-${noteIndex}`,
+          startX: previousNote.x + NOTE_RADIUS_X * 0.95,
+          startY: previousNote.y,
+          endX: note.x - NOTE_RADIUS_X * 0.95,
+          endY: note.y,
+          isActive,
+          archDirection: note.y > STAFF_CENTER_Y ? 1 : -1,
+        });
+      });
+    });
+
+    return ties;
+  }, [currentCursor, renderEvents]);
 
   const beamMembership = useMemo(() => {
     const map = new Map<string, { stemUp: boolean; stemTipY: number }>();
@@ -651,6 +732,27 @@ export default function StaffPreview({
                 </text>
               )}
             </g>
+          );
+        })}
+
+        {tieRenders.map((tie) => {
+          const midX = (tie.startX + tie.endX) / 2;
+          const startY = tie.startY + tie.archDirection * (NOTE_RADIUS_Y + 1);
+          const endY = tie.endY + tie.archDirection * (NOTE_RADIUS_Y + 1);
+          const span = Math.max(24, tie.endX - tie.startX);
+          const archDepth = Math.min(24, Math.max(14, span * 0.22));
+          const controlY = Math.max(tie.startY, tie.endY) + tie.archDirection * archDepth;
+          return (
+            <path
+              key={tie.key}
+              d={`M ${tie.startX} ${startY} C ${midX} ${controlY}, ${midX} ${controlY}, ${tie.endX} ${endY}`}
+              fill="none"
+              stroke={tie.isActive ? "#2f6924" : "#111"}
+              strokeWidth={1.9}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
           );
         })}
 

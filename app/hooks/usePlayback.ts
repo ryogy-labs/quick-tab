@@ -24,6 +24,91 @@ type UsePlaybackOptions = {
   onPlaybackEnd: () => void;
 };
 
+const noteKey = (note: { string: number; fret: number }) => `${note.string}:${note.fret}`;
+
+const toLinearStep = (measureIndex: number, stepIndex: number) =>
+  measureIndex * STEPS_PER_MEASURE + stepIndex;
+
+const getSortedEventsWithPosition = (measures: TabDataV3["measures"]) =>
+  measures.flatMap((measure, measureIndex) =>
+    measure.events.map((event) => ({ event, measureIndex }))
+  ).sort((a, b) => {
+    const measureDelta = a.measureIndex - b.measureIndex;
+    return measureDelta !== 0 ? measureDelta : a.event.step - b.event.step;
+  });
+
+const getPlaybackNoteContext = (
+  measures: TabDataV3["measures"],
+  measureIndex: number,
+  event: TabEvent
+) => {
+  if ("rest" in event && event.rest) {
+    return { mutedNotes: new Set<string>(), durationByNote: new Map<string, number>() };
+  }
+
+  const positioned = getSortedEventsWithPosition(measures);
+  const eventIndex = positioned.findIndex(
+    (item) => item.measureIndex === measureIndex && item.event.step === event.step
+  );
+  const mutedNotes = new Set<string>();
+  const durationByNote = new Map<string, number>();
+
+  event.notes.forEach((note) => {
+    const key = noteKey(note);
+    const previous = positioned
+      .slice(0, eventIndex)
+      .reverse()
+      .find(
+        (item) =>
+          !("rest" in item.event && item.event.rest) &&
+          item.event.notes.some(
+            (candidate) => candidate.string === note.string && candidate.fret === note.fret
+          )
+      );
+    if (
+      note.tie &&
+      previous &&
+      !("rest" in previous.event && previous.event.rest)
+    ) {
+      mutedNotes.add(key);
+    }
+
+    if (note.tie) {
+      return;
+    }
+
+    let lastMeasureIndex = measureIndex;
+    let lastEvent = event;
+    let nextSearchIndex = eventIndex + 1;
+    while (nextSearchIndex < positioned.length) {
+      const next = positioned[nextSearchIndex];
+      if (!next || ("rest" in next.event && next.event.rest)) {
+        nextSearchIndex += 1;
+        continue;
+      }
+      const nextNote = next.event.notes.find(
+        (candidate) => candidate.string === note.string && candidate.fret === note.fret
+      );
+      if (!nextNote) {
+        nextSearchIndex += 1;
+        continue;
+      }
+      if (!nextNote.tie) {
+        break;
+      }
+      lastMeasureIndex = next.measureIndex;
+      lastEvent = next.event;
+      nextSearchIndex += 1;
+    }
+
+    const start = toLinearStep(measureIndex, event.step);
+    const end = toLinearStep(lastMeasureIndex, lastEvent.step) + getPlaybackDuration(lastEvent);
+    durationByNote.set(key, Math.max(getPlaybackDuration(event), end - start));
+  });
+
+  return { mutedNotes, durationByNote };
+};
+
 export function usePlayback({
   tabData,
   selectedMeasureIndex,
@@ -37,7 +122,10 @@ export function usePlayback({
   const audioContextRef = useRef<AudioContext | null>(null);
   // Use a ref so the interval closure always reads the latest callback
   const onPlaybackEndRef = useRef(onPlaybackEnd);
-  onPlaybackEndRef.current = onPlaybackEnd;
+
+  useEffect(() => {
+    onPlaybackEndRef.current = onPlaybackEnd;
+  }, [onPlaybackEnd]);
 
   const stopPlayback = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -59,7 +147,14 @@ export function usePlayback({
     };
   }, []);
 
-  const playEvent = useCallback(async (event: TabEvent, tempo: number) => {
+  const playEvent = useCallback(async (
+    event: TabEvent,
+    tempo: number,
+    options: {
+      mutedNotes?: Set<string>;
+      durationByNote?: Map<string, number>;
+    } = {}
+  ) => {
     if ("rest" in event && event.rest) {
       return;
     }
@@ -73,10 +168,14 @@ export function usePlayback({
     }
 
     const stepSec = (60 / tempo) / (STEPS_PER_MEASURE / 4);
-    const durationSec = stepSec * getPlaybackDuration(event);
     const now = context.currentTime;
 
     event.notes.forEach((note) => {
+      const key = noteKey(note);
+      if (options.mutedNotes?.has(key)) {
+        return;
+      }
+
       const rowIndex = note.string - 1;
       const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
       if (!openMidi) {
@@ -88,6 +187,8 @@ export function usePlayback({
 
       const osc = context.createOscillator();
       const gain = context.createGain();
+      const durationSteps = options.durationByNote?.get(key) ?? getPlaybackDuration(event);
+      const durationSec = stepSec * durationSteps;
 
       osc.type = "triangle";
       osc.frequency.value = frequency;
@@ -112,7 +213,8 @@ export function usePlayback({
       const evts = data.measures.at(measureIndex)?.events ?? [];
       const evt = findEventAtStep(evts, stepIndex);
       if (evt) {
-        void playEvent(evt, data.tempo);
+        const context = getPlaybackNoteContext(data.measures, measureIndex, evt);
+        void playEvent(evt, data.tempo, context);
       }
     },
     [playEvent]
@@ -143,7 +245,8 @@ export function usePlayback({
     const firstEvents = measuresForPlayback[initialCursor.measureIndex] ?? [];
     const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
     if (firstEvent) {
-      void playEvent(firstEvent, tempo);
+      const context = getPlaybackNoteContext(tabData.measures, initialCursor.measureIndex, firstEvent);
+      void playEvent(firstEvent, tempo, context);
     }
 
     intervalRef.current = window.setInterval(() => {
@@ -181,7 +284,8 @@ export function usePlayback({
       const eventsForMeasure = measuresForPlayback[cursor.measureIndex] ?? [];
       const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
       if (current) {
-        void playEvent(current, tempo);
+        const context = getPlaybackNoteContext(tabData.measures, cursor.measureIndex, current);
+        void playEvent(current, tempo, context);
       }
     }, stepDurationMs);
   }, [isPlaying, stopPlayback, tabData, selectedMeasureIndex, overflowingMeasureSet, playEvent]);

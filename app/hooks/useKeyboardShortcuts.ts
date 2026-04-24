@@ -19,6 +19,7 @@ type UseKeyboardShortcutsOptions = {
   onCopyRange: () => void;
   onPasteMeasure: () => void;
   onPasteRange: () => void;
+  onToggleTie: () => void;
   onClearDigitBuffer: () => void;
   // state needed for conditional logic
   isPlaying: boolean;
@@ -38,7 +39,10 @@ const isEditableTarget = (target: EventTarget | null): boolean => {
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
   // Store options in a ref so the listener never needs to be re-registered
   const optsRef = useRef(options);
-  optsRef.current = options;
+
+  useEffect(() => {
+    optsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -50,7 +54,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
       if (withCommandKey && !editable) {
         if (key.toLowerCase() === "z") {
           e.preventDefault();
-          e.shiftKey ? opts.onRedo() : opts.onUndo();
+          if (e.shiftKey) {
+            opts.onRedo();
+          } else {
+            opts.onUndo();
+          }
           return;
         }
         if (key.toLowerCase() === "y") {
@@ -60,7 +68,11 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
         }
         if (key.toLowerCase() === "c") {
           e.preventDefault();
-          opts.selectedRange ? opts.onCopyRange() : opts.onCopyMeasure();
+          if (opts.selectedRange) {
+            opts.onCopyRange();
+          } else {
+            opts.onCopyMeasure();
+          }
           return;
         }
         if (key.toLowerCase() === "v") {
@@ -98,6 +110,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions) {
       if (key === "Enter" && opts.activeIsRestMode) {
         e.preventDefault();
         opts.onPlaceRest(opts.selectedStep);
+        return;
+      }
+
+      if (!editable && key.toLowerCase() === "t") {
+        e.preventDefault();
+        opts.onClearDigitBuffer();
+        opts.onToggleTie();
         return;
       }
 
