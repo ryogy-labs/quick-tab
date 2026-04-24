@@ -21,14 +21,14 @@ type StaffPreviewProps = {
 type PitchToken = {
   midi: number;
   letter: "C" | "D" | "E" | "F" | "G" | "A" | "B";
-  accidental: "#" | "";
+  accidental: "#" | "b" | "";
   octave: number;
 };
 
 type NoteRender = {
   x: number;
   y: number;
-  accidental: "#" | "";
+  accidental: "#" | "b" | "";
 };
 
 type EventRender = {
@@ -87,38 +87,58 @@ const toDiatonicIndex = (letter: PitchToken["letter"], octave: number): number =
 const midiToPitchToken = (midi: number): PitchToken => {
   const pitchClass = ((midi % 12) + 12) % 12;
   const octave = Math.floor(midi / 12) - 1;
-
   switch (pitchClass) {
-    case 0:
-      return { midi, letter: "C", accidental: "", octave };
-    case 1:
-      return { midi, letter: "C", accidental: "#", octave };
-    case 2:
-      return { midi, letter: "D", accidental: "", octave };
-    case 3:
-      return { midi, letter: "D", accidental: "#", octave };
-    case 4:
-      return { midi, letter: "E", accidental: "", octave };
-    case 5:
-      return { midi, letter: "F", accidental: "", octave };
-    case 6:
-      return { midi, letter: "F", accidental: "#", octave };
-    case 7:
-      return { midi, letter: "G", accidental: "", octave };
-    case 8:
-      return { midi, letter: "G", accidental: "#", octave };
-    case 9:
-      return { midi, letter: "A", accidental: "", octave };
-    case 10:
-      return { midi, letter: "A", accidental: "#", octave };
+    case 0:  return { midi, letter: "C", accidental: "",  octave };
+    case 1:  return { midi, letter: "C", accidental: "#", octave };
+    case 2:  return { midi, letter: "D", accidental: "",  octave };
+    case 3:  return { midi, letter: "D", accidental: "#", octave };
+    case 4:  return { midi, letter: "E", accidental: "",  octave };
+    case 5:  return { midi, letter: "F", accidental: "",  octave };
+    case 6:  return { midi, letter: "F", accidental: "#", octave };
+    case 7:  return { midi, letter: "G", accidental: "",  octave };
+    case 8:  return { midi, letter: "G", accidental: "#", octave };
+    case 9:  return { midi, letter: "A", accidental: "",  octave };
+    case 10: return { midi, letter: "A", accidental: "#", octave };
     case 11:
-    default:
-      return { midi, letter: "B", accidental: "", octave };
+    default: return { midi, letter: "B", accidental: "",  octave };
   }
 };
 
-const midiToStaffY = (midi: number): { y: number; accidental: "#" | "" } => {
-  const token = midiToPitchToken(midi);
+const midiToPitchTokenFlat = (midi: number): PitchToken => {
+  const pitchClass = ((midi % 12) + 12) % 12;
+  const octave = Math.floor(midi / 12) - 1;
+  switch (pitchClass) {
+    case 0:  return { midi, letter: "C", accidental: "",  octave };
+    case 1:  return { midi, letter: "D", accidental: "b", octave };
+    case 2:  return { midi, letter: "D", accidental: "",  octave };
+    case 3:  return { midi, letter: "E", accidental: "b", octave };
+    case 4:  return { midi, letter: "E", accidental: "",  octave };
+    case 5:  return { midi, letter: "F", accidental: "",  octave };
+    case 6:  return { midi, letter: "G", accidental: "b", octave };
+    case 7:  return { midi, letter: "G", accidental: "",  octave };
+    case 8:  return { midi, letter: "A", accidental: "b", octave };
+    case 9:  return { midi, letter: "A", accidental: "",  octave };
+    case 10: return { midi, letter: "B", accidental: "b", octave };
+    case 11:
+    // Cb: visually sits on C one octave higher than the computed octave
+    default: return { midi, letter: "C", accidental: "b", octave: octave + 1 };
+  }
+};
+
+// Sharp pitch classes in key-signature order (FCGDAEB)
+const SHARP_KEY_PITCH_CLASSES = [6, 1, 8, 3, 10, 5, 0] as const;
+// Flat pitch classes in key-signature order (BEADGCF)
+const FLAT_KEY_PITCH_CLASSES  = [10, 3, 8, 1, 6, 11, 4] as const;
+
+const getKeyPitchClasses = (key: KeySignature): Set<number> => {
+  const { sharps, flats } = KEY_ACCIDENTAL_COUNTS[key];
+  if (sharps > 0) return new Set(SHARP_KEY_PITCH_CLASSES.slice(0, sharps));
+  if (flats  > 0) return new Set(FLAT_KEY_PITCH_CLASSES.slice(0, flats));
+  return new Set();
+};
+
+const midiToStaffY = (midi: number, useFlatSpelling: boolean): { y: number; accidental: "#" | "b" | "" } => {
+  const token = useFlatSpelling ? midiToPitchTokenFlat(midi) : midiToPitchToken(midi);
   const diatonic = toDiatonicIndex(token.letter, token.octave);
   const stepsFromE4 = diatonic - E4_DIATONIC_INDEX;
   const y = STAFF_BOTTOM - stepsFromE4 * (STAFF_LINE_GAP / 2);
@@ -273,10 +293,18 @@ const buildRenderEvents = (
   measuresEvents: TabEvent[][],
   measureStartXs: number[],
   stepWidth: number,
-  stepUnit: number
+  stepUnit: number,
+  keySignature: KeySignature = "C"
 ): EventRender[] => {
-  return measuresEvents.flatMap((events, measureIndex) =>
-    sanitizeEvents(events, STEPS_PER_MEASURE, true)
+  const { flats } = KEY_ACCIDENTAL_COUNTS[keySignature] ?? { sharps: 0, flats: 0 };
+  const useFlatSpelling = flats > 0;
+  const keyPitchClasses = getKeyPitchClasses(keySignature);
+
+  return measuresEvents.flatMap((events, measureIndex) => {
+    // Track pitch classes whose accidental has already been shown this measure.
+    const shownAccidentals = new Set<number>();
+
+    return sanitizeEvents(events, STEPS_PER_MEASURE, true)
       .map((event) => {
         const measureStartX = measureStartXs[measureIndex] ?? measureStartXs[0] ?? 0;
         const x = measureStartX + stepWidth * (event.step / stepUnit + 0.5);
@@ -287,7 +315,7 @@ const buildRenderEvents = (
             step: event.step,
             len: event.len,
             isRest: true,
-            notes: [{ x, y: STAFF_CENTER_Y, accidental: "" }],
+            notes: [{ x, y: STAFF_CENTER_Y, accidental: "" as const }],
             dot: event.dot,
             triplet: event.triplet,
           };
@@ -295,17 +323,24 @@ const buildRenderEvents = (
 
         const notes = event.notes
           .map((note) => {
-            // string number mapping: 1 = high E (E4), 6 = low E (E2)
-            // UI row index mapping: rowIndex 0 => string 1, rowIndex 5 => string 6
             const rowIndex = note.string - 1;
             const openMidi = OPEN_STRING_MIDI_BY_STRING[rowIndex];
-            if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) {
-              return null;
-            }
+            if (rowIndex < 0 || rowIndex > 5 || openMidi === undefined) return null;
             // Guitar notation is written one octave above sounding pitch.
             const writtenMidi = openMidi + note.fret + 12;
-            const pos = midiToStaffY(writtenMidi);
-            return { x, y: pos.y, accidental: pos.accidental };
+            const pitchClass = ((writtenMidi % 12) + 12) % 12;
+            const pos = midiToStaffY(writtenMidi, useFlatSpelling);
+
+            let accidental = pos.accidental;
+            if (accidental !== "") {
+              if (keyPitchClasses.has(pitchClass) || shownAccidentals.has(pitchClass)) {
+                accidental = "";
+              } else {
+                shownAccidentals.add(pitchClass);
+              }
+            }
+
+            return { x, y: pos.y, accidental };
           })
           .filter((item): item is NoteRender => item !== null)
           .sort((a, b) => a.y - b.y);
@@ -319,8 +354,8 @@ const buildRenderEvents = (
           dot: event.dot,
           triplet: event.triplet,
         };
-      })
-  );
+      });
+  });
 };
 
 const ledgerLineYs = (y: number): number[] => {
@@ -360,8 +395,8 @@ export default function StaffPreview({
   const labelWidth = measureStartXs[0] ?? 0;
 
   const renderEvents = useMemo(
-    () => buildRenderEvents(measuresEvents, measureStartXs, stepWidth, stepUnit),
-    [measuresEvents, measureStartXs, stepWidth, stepUnit]
+    () => buildRenderEvents(measuresEvents, measureStartXs, stepWidth, stepUnit, keySignature),
+    [measuresEvents, measureStartXs, stepWidth, stepUnit, keySignature]
   );
 
   const beamGroups = useMemo(() => computeBeamGroups(renderEvents), [renderEvents]);
@@ -548,7 +583,7 @@ export default function StaffPreview({
                       textAnchor="middle"
                       fill={isActive ? "#b34700" : "#111"}
                     >
-                      {note.accidental}
+                      {note.accidental === "b" ? "♭" : "♯"}
                     </text>
                   )}
                   <ellipse
