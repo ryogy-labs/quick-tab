@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import styles from "./StaffPreview.module.css";
-import { OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent, sanitizeEvents } from "../tabModel";
+import { KEY_ACCIDENTAL_COUNTS, KeySignature, OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent, sanitizeEvents } from "../tabModel";
 
 type StaffPreviewProps = {
   measuresEvents: TabEvent[][];
@@ -15,6 +15,7 @@ type StaffPreviewProps = {
   overflowingMeasures?: Set<number>;
   showClef?: boolean;
   showBarLines?: boolean;
+  keySignature?: KeySignature;
 };
 
 type PitchToken = {
@@ -49,6 +50,16 @@ const STAFF_LINES = 5;
 const NOTE_RADIUS_X = 6;
 const NOTE_RADIUS_Y = 4.4;
 const STEM_HEIGHT = 30;
+// Key signature: Y positions for each accidental in treble clef.
+// Computed from STAFF_BOTTOM - stepsFromE4 * (STAFF_LINE_GAP / 2).
+// Sharp order: F C G D A E B  (FCGDAEB)
+const SHARP_YS = [76, 94, 70, 88, 106, 82, 100] as const;
+// Flat order: B E A D G C F  (BEADGCF)
+const FLAT_YS  = [100, 82, 106, 88, 112, 94, 118] as const;
+const KEY_SIG_X_START_RATIO = 0.68; // fraction of labelWidth
+const KEY_SIG_SPACING = 8;
+const KEY_SIG_FONT_SIZE = 15;
+
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 6;
 const BEAT_STEPS = 24;
@@ -341,6 +352,7 @@ export default function StaffPreview({
   overflowingMeasures = new Set<number>(),
   showClef = true,
   showBarLines = true,
+  keySignature = "C",
 }: StaffPreviewProps) {
   const measureCount = Math.max(1, measuresEvents.length);
   const width = timelineWidth;
@@ -431,6 +443,35 @@ export default function StaffPreview({
             𝄞
           </text>
         )}
+
+        {showClef && (() => {
+          const counts = KEY_ACCIDENTAL_COUNTS[keySignature];
+          if (!counts) return null;
+          const { sharps, flats } = counts;
+          if (sharps === 0 && flats === 0) return null;
+          const isSharp = sharps > 0;
+          const count = isSharp ? sharps : flats;
+          const ys = isSharp ? SHARP_YS : FLAT_YS;
+          const symbol = isSharp ? "♯" : "♭";
+          const xStart = labelWidth * KEY_SIG_X_START_RATIO;
+          return (
+            <g>
+              {Array.from({ length: count }, (_, i) => (
+                <text
+                  key={`keysig-${i}`}
+                  x={xStart + i * KEY_SIG_SPACING}
+                  y={ys[i]! + KEY_SIG_FONT_SIZE * 0.35}
+                  fontSize={KEY_SIG_FONT_SIZE}
+                  textAnchor="middle"
+                  fill="#111"
+                  fontWeight={700}
+                >
+                  {symbol}
+                </text>
+              ))}
+            </g>
+          );
+        })()}
 
         {renderEvents.map((event) => {
           const safeLen = normalizeLenForDuration(event.len);

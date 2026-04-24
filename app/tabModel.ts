@@ -43,10 +43,30 @@ export type TabMeasureV3 = {
   events: TabEvent[];
 };
 
+export type KeySignature =
+  | "C" | "G" | "D" | "A" | "E" | "B" | "F#" | "C#"
+  | "F" | "Bb" | "Eb" | "Ab" | "Db" | "Gb" | "Cb";
+
+export const KEY_SIGNATURES: KeySignature[] = [
+  "C#", "F#", "B", "E", "A", "D", "G", "C", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb",
+];
+
+export const KEY_ACCIDENTAL_COUNTS: Record<KeySignature, { sharps: number; flats: number }> = {
+  "C#": { sharps: 7, flats: 0 }, "F#": { sharps: 6, flats: 0 },
+  "B":  { sharps: 5, flats: 0 }, "E":  { sharps: 4, flats: 0 },
+  "A":  { sharps: 3, flats: 0 }, "D":  { sharps: 2, flats: 0 },
+  "G":  { sharps: 1, flats: 0 }, "C":  { sharps: 0, flats: 0 },
+  "F":  { sharps: 0, flats: 1 }, "Bb": { sharps: 0, flats: 2 },
+  "Eb": { sharps: 0, flats: 3 }, "Ab": { sharps: 0, flats: 4 },
+  "Db": { sharps: 0, flats: 5 }, "Gb": { sharps: 0, flats: 6 },
+  "Cb": { sharps: 0, flats: 7 },
+};
+
 export type TabDataV3 = {
   version: "v3";
   tempo: number;
   timeSig: "4/4";
+  key?: KeySignature;
   stepsPerMeasure: number;
   tuning: string[];
   measures: TabMeasureV3[];
@@ -182,6 +202,7 @@ export const createEmptyTabDataV3 = (): TabDataV3 => ({
   version: "v3",
   tempo: 120,
   timeSig: "4/4",
+  key: "C",
   stepsPerMeasure: STEPS_PER_MEASURE,
   tuning: [...TUNING],
   measures: [{ events: [] }],
@@ -843,6 +864,7 @@ export const toFrequency = (midiNote: number): number =>
 type RawTabData = {
   version?: unknown;
   tempo?: unknown;
+  key?: unknown;
   tuning?: unknown;
   stepsPerMeasure?: unknown;
   measures?: unknown;
@@ -884,10 +906,17 @@ export const normalizeToTabDataV3 = (
       return null;
     }
 
+    const rawKey = candidate.key;
+    const key: KeySignature =
+      typeof rawKey === "string" && rawKey in KEY_ACCIDENTAL_COUNTS
+        ? (rawKey as KeySignature)
+        : "C";
+
     return sanitizeTabDataV3({
       version: "v3",
       tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
       timeSig: "4/4",
+      key,
       stepsPerMeasure: STEPS_PER_MEASURE,
       tuning:
         Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT

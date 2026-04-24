@@ -54,6 +54,8 @@ import {
   pasteMeasure,
   pasteRangeClipboardIntoMeasure,
   sanitizeEvents,
+  KeySignature,
+  KEY_SIGNATURES,
   sanitizeTabDataV3,
   shiftEventsFromStep,
   updateEventLengthAtStep,
@@ -1447,6 +1449,27 @@ export default function Home() {
       type: "custom" as const,
       content: (
         <div>
+          <div className={styles.menuSectionTitle}>Key</div>
+          <select
+            className={styles.keySelect}
+            value={tabData.key ?? "C"}
+            onChange={(e) => {
+              const k = e.target.value as KeySignature;
+              commitTabData({ ...tabData, key: k });
+            }}
+          >
+            {KEY_SIGNATURES.map((k) => (
+              <option key={k} value={k}>{k}</option>
+            ))}
+          </select>
+        </div>
+      ),
+    },
+    { type: "separator" as const },
+    {
+      type: "custom" as const,
+      content: (
+        <div>
           <div className={styles.menuSectionTitle}>Input Mode</div>
           <div className={styles.modeToggleRow}>
             <button
@@ -1471,7 +1494,7 @@ export default function Home() {
         </div>
       ),
     },
-  ], [autoShift, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleImportFile]);
+  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleImportFile]);
 
   return (
     <div className={styles.page}>
@@ -1598,6 +1621,7 @@ export default function Home() {
                   timelineWidth={timelineWidth}
                   overflowingMeasures={overflowingMeasureSet}
                   showBarLines={false}
+                  keySignature={tabData.key}
                 />
               </div>
               <div className={styles.gridSection}>
