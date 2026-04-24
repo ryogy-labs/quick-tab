@@ -165,6 +165,18 @@
   color: #123a57;
 }
 
+.keySelect {
+  width: 100%;
+  border: 1px solid #a6bed7;
+  border-radius: 8px;
+  background: #fff;
+  color: #274968;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .notationScroll {
   overflow-x: auto;
 }
