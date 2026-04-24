@@ -15,6 +15,7 @@ export type TabNoteEventNote = {
   string: number;
   fret: number;
   technique?: Technique;
+  tie?: boolean;
 };
 
 export type DurationModifier = "normal" | "dotted" | "triplet";
@@ -255,6 +256,7 @@ const cloneNote = (note: TabNoteEventNote): TabNoteEventNote => ({
   string: note.string,
   fret: note.fret,
   ...(note.technique ? { technique: note.technique } : {}),
+  ...(note.tie ? { tie: true } : {}),
 });
 
 const cloneEvent = (event: TabEvent): TabEvent => {
@@ -487,6 +489,7 @@ const sortAndDedupeNotes = (notes: TabNoteEventNote[]): TabNoteEventNote[] => {
       string: note.string,
       fret: clampFret(note.fret),
       ...(note.technique ? { technique: note.technique } : {}),
+      ...(note.tie ? { tie: true } : {}),
     });
   });
 
@@ -847,6 +850,81 @@ export const deleteSpecificNoteAtStep = (
   }
 
   next.push({ step: existing.step, len: existing.len, notes: remaining });
+  return sanitizeEvents(next, stepLimit, true);
+};
+
+export const toggleTieAtStep = (
+  events: TabEvent[],
+  stepIndex: number,
+  stringNumber: number,
+  stepLimit = STEPS_PER_MEASURE
+): TabEvent[] => {
+  const safeStep = clampStep(stepIndex, stepLimit);
+  const safeString = clampInt(stringNumber, 1, STRINGS_COUNT);
+  const existing = findEventAtStep(events, safeStep);
+
+  if (!existing || ("rest" in existing && existing.rest)) {
+    return sanitizeEvents(events, stepLimit, true);
+  }
+
+  const next = sanitizeEvents(events, stepLimit, true).filter(
+    (event) => event.step !== safeStep
+  );
+  const notes = existing.notes.map((note) => {
+    if (note.string !== safeString) {
+      return note;
+    }
+    const { tie, ...rest } = note;
+    return tie ? rest : { ...rest, tie: true };
+  });
+
+  next.push({
+    step: existing.step,
+    len: existing.len,
+    notes,
+    ...(existing.dot ? { dot: true } : {}),
+    ...(existing.triplet ? { triplet: true } : {}),
+  });
+  return sanitizeEvents(next, stepLimit, true);
+};
+
+export const setTieAtStep = (
+  events: TabEvent[],
+  stepIndex: number,
+  stringNumber: number,
+  tied: boolean,
+  stepLimit = STEPS_PER_MEASURE
+): TabEvent[] => {
+  const safeStep = clampStep(stepIndex, stepLimit);
+  const safeString = clampInt(stringNumber, 1, STRINGS_COUNT);
+  const existing = findEventAtStep(events, safeStep);
+
+  if (!existing || ("rest" in existing && existing.rest)) {
+    return sanitizeEvents(events, stepLimit, true);
+  }
+
+  const next = sanitizeEvents(events, stepLimit, true).filter(
+    (event) => event.step !== safeStep
+  );
+  const notes = existing.notes.map((note) => {
+    if (note.string !== safeString) {
+      return note;
+    }
+    return {
+      string: note.string,
+      fret: note.fret,
+      ...(note.technique ? { technique: note.technique } : {}),
+      ...(tied ? { tie: true } : {}),
+    };
+  });
+
+  next.push({
+    step: existing.step,
+    len: existing.len,
+    notes,
+    ...(existing.dot ? { dot: true } : {}),
+    ...(existing.triplet ? { triplet: true } : {}),
+  });
   return sanitizeEvents(next, stepLimit, true);
 };
 

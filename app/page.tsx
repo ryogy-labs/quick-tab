@@ -57,7 +57,9 @@ import {
   KeySignature,
   KEY_SIGNATURES,
   sanitizeTabDataV3,
+  setTieAtStep,
   shiftEventsFromStep,
+  toggleTieAtStep,
   updateEventLengthAtStep,
   upsertNoteAtCell,
   upsertRestAtStep,
@@ -80,6 +82,10 @@ type CursorAdvanceResult = {
 type StaffBarMetrics = {
   top: number;
   height: number;
+};
+
+type PreviousStringNote = {
+  fret: number;
 };
 
 const toGlobalStep = (cursor: PlayCursor): number =>
@@ -176,6 +182,7 @@ export default function Home() {
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
   const [autoShift, setAutoShift] = useState(true);
+  const [tieInputMode, setTieInputMode] = useState(false);
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -230,6 +237,13 @@ export default function Home() {
     selectedEvent && !("rest" in selectedEvent && selectedEvent.rest)
       ? selectedEvent.notes
       : [];
+  const selectedStringNumber = selected.rowIndex + 1;
+  const selectedNote =
+    selectedEvent && !("rest" in selectedEvent && selectedEvent.rest)
+      ? selectedEvent.notes.find((note) => note.string === selectedStringNumber)
+      : undefined;
+  const selectedNoteTieActive = selectedNote?.tie === true;
+  const tieButtonActive = selectedNote ? selectedNoteTieActive : tieInputMode;
   const activeInputLen = selectedEvent ? selectedEvent.len : inputLen;
   const activeIsRestMode =
     selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
@@ -353,6 +367,35 @@ export default function Home() {
   const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
     data.measures.at(measureIndex)?.events ?? [];
 
+  const findPreviousNoteOnString = (
+    measureIndex: number,
+    stepIndex: number,
+    stringNumber: number
+  ): PreviousStringNote | null => {
+    for (let mi = measureIndex; mi >= 0; mi -= 1) {
+      const limitStep = mi === measureIndex ? stepIndex : Infinity;
+      const previousEvent = sanitizeEvents(
+        getMeasureEvents(tabData, mi),
+        measureDisplayStepsByMeasure[mi] ?? STEPS_PER_MEASURE,
+        true
+      )
+        .filter((event) => event.step < limitStep && !("rest" in event && event.rest))
+        .reverse()
+        .find((event) =>
+          !("rest" in event && event.rest) &&
+          event.notes.some((note) => note.string === stringNumber)
+        );
+      if (!previousEvent || ("rest" in previousEvent && previousEvent.rest)) {
+        continue;
+      }
+      const previousNote = previousEvent.notes.find((note) => note.string === stringNumber);
+      if (previousNote) {
+        return { fret: previousNote.fret };
+      }
+    }
+    return null;
+  };
+
   const getClampedDisplayStep = (stepIndex: number, measureIndex: number): number => {
     const displaySteps =
       measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
@@ -466,7 +509,7 @@ export default function Home() {
     setSingleCellSelection({ ...selected, stepIndex: current });
   };
 
-  const commitNoteAtSelected = (fret: number) => {
+  const commitNoteAtSelected = (fret: number, forceTie = false) => {
     const safeFret = clampFret(fret);
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
@@ -489,7 +532,7 @@ export default function Home() {
     ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(
+    const nextEventsWithoutTie = upsertNoteAtCell(
       placementSource,
       selected,
       safeFret,
@@ -497,6 +540,16 @@ export default function Home() {
       selectedMeasureDisplaySteps,
       true
     );
+    const shouldTie = tieInputMode || forceTie;
+    const nextEvents = shouldTie
+      ? setTieAtStep(
+          nextEventsWithoutTie,
+          selected.stepIndex,
+          selectedStringNumber,
+          true,
+          selectedMeasureDisplaySteps
+        )
+      : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
@@ -573,7 +626,7 @@ export default function Home() {
     ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(
+    const nextEventsWithoutTie = upsertNoteAtCell(
       placementSource,
       nextSelected,
       safeFret,
@@ -581,6 +634,15 @@ export default function Home() {
       selectedMeasureDisplaySteps,
       true
     );
+    const nextEvents = tieInputMode
+      ? setTieAtStep(
+          nextEventsWithoutTie,
+          nextSelected.stepIndex,
+          stringNumber,
+          true,
+          selectedMeasureDisplaySteps
+        )
+      : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
@@ -672,7 +734,7 @@ export default function Home() {
     ) {
       return;
     }
-    const nextEvents = upsertNoteAtCell(
+    const nextEventsWithoutTie = upsertNoteAtCell(
       placementSource,
       nextSelected,
       safeFret,
@@ -680,6 +742,15 @@ export default function Home() {
       selectedMeasureDisplaySteps,
       true
     );
+    const nextEvents = tieInputMode
+      ? setTieAtStep(
+          nextEventsWithoutTie,
+          nextSelected.stepIndex,
+          rowIndex + 1,
+          true,
+          selectedMeasureDisplaySteps
+        )
+      : nextEventsWithoutTie;
 
     // Apply dot/triplet modifier to the inserted event
     const modifiedEvents = nextEvents.map((ev) => {
@@ -1057,6 +1128,43 @@ export default function Home() {
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
 
+  const handleToggleTie = () => {
+    if (isPlaying) {
+      return;
+    }
+
+    if (!selectedNote) {
+      const previousNote = findPreviousNoteOnString(
+        selectedMeasureIndex,
+        selected.stepIndex,
+        selectedStringNumber
+      );
+      if (previousNote) {
+        commitNoteAtSelected(previousNote.fret, true);
+        setTieInputMode(false);
+        return;
+      }
+
+      setTieInputMode((prev) => !prev);
+      return;
+    }
+
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const owningStep = findOwningEventStep(
+      measureEvents,
+      selected.stepIndex,
+      selectedMeasureDisplaySteps
+    );
+    const nextEvents = toggleTieAtStep(
+      measureEvents,
+      owningStep,
+      selectedStringNumber,
+      selectedMeasureDisplaySteps
+    );
+    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+    setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
+  };
+
   const handleTempoCommit = (raw: string) => {
     const parsed = Number(raw);
     if (Number.isNaN(parsed)) {
@@ -1189,6 +1297,7 @@ export default function Home() {
     onCopyRange: handleCopyRange,
     onPasteMeasure: handlePasteMeasure,
     onPasteRange: handlePasteRange,
+    onToggleTie: handleToggleTie,
     onClearDigitBuffer: clearDigitBuffer,
     isPlaying,
     activeIsRestMode,
@@ -1573,6 +1682,20 @@ export default function Home() {
             ×
           </button>
 
+          <button
+            type="button"
+            className={`${styles.tieBtn} ${
+              tieButtonActive ? styles.tieBtnActive : ""
+            }`.trim()}
+            onClick={handleToggleTie}
+            disabled={isPlaying}
+            aria-pressed={tieButtonActive}
+            aria-label="Toggle tie"
+            title="Toggle tie (T)"
+          >
+            Tie
+          </button>
+
           <DropdownMenu items={menuItems} />
         </div>
 
@@ -1649,9 +1772,16 @@ export default function Home() {
                     {displayCells.map(({ measureIndex, stepIndex }, globalSlotIndex) => {
                       const measureEvents = getMeasureEvents(tabData, measureIndex);
                       const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
+                      const cellEvent = findEventAtStep(measureEvents, stepIndex);
+                      const hasTie =
+                        cellEvent && !("rest" in cellEvent && cellEvent.rest)
+                          ? cellEvent.notes.some((note) => note.string === rowIndex + 1 && note.tie)
+                          : false;
                       const displayValue =
                         cell?.fret !== null && cell?.fret !== undefined
-                          ? String(cell.fret)
+                          ? hasTie
+                            ? `(${cell.fret})`
+                            : String(cell.fret)
                           : "";
                       const hasDisplayValue = displayValue !== "";
                       const isSelected =
@@ -1710,6 +1840,7 @@ export default function Home() {
                           <span
                             className={`${styles.cellValue} ${
                               hasDisplayValue ? styles.cellValueFilled : ""
+                            } ${hasTie ? styles.cellValueTied : ""
                             }`.trim()}
                           >
                             {displayValue}

@@ -23,6 +23,7 @@
 ## Core Flows
 - エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
 - 音価を先に選び、その後セルまたはフレットボード上の位置を指定してフレット番号を入力する。選択中イベントがある場合は、そのイベント長をツールバーへ同期する
+- Tie は選択中の note に付与/解除できる。空セル選択時に直前の同じ弦の note が存在する場合は、その note と同じフレットを Tie note として自動入力する。直前 note が存在しない場合は Tie 入力モードとして切り替わり、次に入力する note へ Tie を付与する。Tie は同一弦・同一フレットの直前 note から音を受けてつなぐ指定として扱い、譜面プレビューでは直前 note から Tie note へタイ曲線、TAB グリッドではフレット番号を括弧で囲んで表示する
 - デスクトップでは数字キー、モバイルではテンキーからフレット番号を入力する。2 桁入力は短いバッファ時間内で結合され、確定後にノートを配置する
 - フレットボードではタップで既定音価のノートを置き、フリックで音価と dotted/triplet modifier を含めて 1 アクションで配置できる
 - 休符モードでは現在選択 step に休符を配置する。フリック休符入力でも同様に音価と modifier を反映する
@@ -33,6 +34,7 @@
 - 範囲選択はドラッグで行うが、MVP では単一 measure 内にクランプされる。選択範囲は range copy/paste と範囲削除に使う
 - Undo/Redo はローカル履歴で管理し、キーボードショートカットにも対応する
 - Play を押すと現在 measure から step 単位で再生カーソルが進み、各 step 開始位置のイベントだけを発音する。overflow measure では remainder をスキップして次 measure へ進む。最後の measure まで到達すると停止し、選択は先頭へ戻る
+- Tie された note の再生では、直前の同一弦・同一フレット note の発音を Tie note まで延長し、Tie note は再アタックしない
 - Export は現在の TAB データを JSON としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する
 
@@ -42,7 +44,7 @@
 - TAB データの基本構造は `TabDataV3 = { version, tempo, timeSig, key?, stepsPerMeasure, tuning, measures }`
 - `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabDataV3` でバリデーションし、不正値は `"C"` にフォールバックする
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
-- Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する
+- Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique?, tie? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する。`tie` は直前の同一弦・同一フレット note から音を受ける指定で、note 単位に保存する
 - Rest event は `step`, `len`, `rest: true`, optional `dot` / `triplet` を持つ
 - `stepsPerMeasure` は 96 を基本とし、16 分音符 = 6 step として表現する。これにより dotted / triplet を整数 step で扱う
 - Measure clipboard と range clipboard はメモリ上の一時状態であり、リロード後には残らない

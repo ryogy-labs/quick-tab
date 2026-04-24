@@ -101,6 +101,30 @@
   cursor: default;
 }
 
+.tieBtn {
+  border: 1px solid #a6bed7;
+  background: #fff;
+  color: #274968;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tieBtnActive {
+  background: #e4f7dc;
+  border-color: #65a34d;
+  color: #2f6924;
+}
+
+.tieBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .playBtnActive {
   background: #fff0c6;
   border-color: #b06d00;
@@ -298,6 +322,12 @@
   background: #ffffffdd;
 }
 
+.cellValueTied {
+  color: #2f6924;
+  font-size: 24px;
+  font-family: Arial, sans-serif;
+}
+
 .selected {
   z-index: 4;
   background: linear-gradient(0deg, #d8ecff55, #d8ecff55);
@@ -380,6 +410,10 @@
 
   .cellValue {
     font-size: 32px;
+  }
+
+  .cellValueTied {
+    font-size: 18px;
   }
 
   .stringLabel {
