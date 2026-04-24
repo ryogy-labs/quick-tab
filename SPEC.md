@@ -52,6 +52,24 @@
 - `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、`stepsPerMeasure` 超えはオーバーフローとして保持する
 - Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して `tabModel.ts` で管理する。ノート削除時も後続を左詰めする。各関数は `autoShift: boolean` を引数に取り、page.tsx 側で渡す
 
+## Future Time Representation
+- 現行 MVP の canonical model は `TabDataV3` の step-based 表現を維持する
+- 将来の外部譜面形式互換と複雑な音価対応を見据え、次期 canonical model では step-based 表現から tick-based 表現への移行を検討対象とする
+- 次期モデルの方向性は `ticksPerQuarter` と event 単位の `startTick` / `durationTick` を基本とし、`96 stepsPerMeasure` 固定を最終仕様とはみなさない
+- `dot` / `triplet` は将来的には長さ計算の正本ではなく、入力補助または表示補助メタデータとして扱う余地を残す
+- UI 上の 16 分単位グリッド、フリック入力、選択セルの挙動は直ちに廃止せず、内部 canonical model と表示スロットの変換層を介して段階的に移行する
+- 互換機能を追加する場合も、外部形式を直接 UI に接続せず、`canonical model <-> format adapter` の境界を維持する
+- `TabDataV3` から次期 tick-based モデルへの migration を前提にし、保存復元では旧バージョン読込時の normalize 経路を維持する
+
+## Future Native Migration
+- iPhone アプリ化を見据えるが、早期段階では Web 実装を先行し、入力体験と編集ルールの確立を優先する
+- Swift / SwiftUI への移植を前提に、編集ルール、時間計算、sanitize、import/export、playback scheduling に関わるロジックは UI 層から分離して管理する
+- `page.tsx` は一時的に統合責務を担うが、将来的には `tabModel.ts` と周辺 hook / service にロジックを寄せ、UI 依存のない core を厚くする
+- ネイティブ移植時も canonical model は共通仕様として維持し、Web と iOS で別々の譜面仕様を持たない
+- gesture, selection, clipboard, playback cursor などの UI 挙動は platform ごとの差異を許容するが、編集結果の整合性は共通 core で担保する
+- App Store 配布や iOS 固有機能への対応は将来の native UI 採用理由になりうるが、それ自体を理由に早期全面移植は行わない
+- 移植判断は、Web 版で主要ユースケースの入力フロー、データモデル、undo/redo、永続化、互換境界が安定した後に行う
+
 ## Rules
 - パラメータ範囲・初期値はコード上の定数を正とする。`SPEC.md` には重複記載しない
 - 再生中は編集系操作を抑止する前提で扱う。入力 UI と measure 操作に同じ前提を保つ
@@ -60,6 +78,7 @@
 - 大きな機能追加時も、まずは `page.tsx` と `tabModel.ts` の責務境界を崩さずに収めることを優先する
 - `×` ボタンは event 単位削除、キーボード `Backspace/Delete` は選択弦の note 単位削除を基本とする
 - Sequential シフトは「既存イベントの音価変更時」および「イベント削除時」に適用し、空ステップへの新規入力時には適用しない
+- 将来の native 移植を見据え、UI 変更時も編集ルールを `page.tsx` に閉じ込めず、再利用可能な model / hook / service へ寄せる方針を優先する
 
 
 ## Known Issues
@@ -67,6 +86,7 @@
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
+- `96 stepsPerMeasure` 固定は MVP としては合理的だが、将来の Guitar Pro / MusicXML 互換や複雑な tuplet 対応の最終解ではない
 - overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
 - 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある
 - 現在の措置は横スクロール1行レイアウト前提。将来の折り返し複数行レイアウト対応時は measure ごとの `displayColumns` 計算を導入する予定
