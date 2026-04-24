@@ -49,6 +49,9 @@ const STAFF_LINES = 5;
 const NOTE_RADIUS_X = 6;
 const NOTE_RADIUS_Y = 4.4;
 const STEM_HEIGHT = 30;
+const BEAM_THICKNESS = 4;
+const BEAM_GAP = 6;
+const BEAT_STEPS = 24;
 
 export const STAFF_BOTTOM = STAFF_TOP + STAFF_LINE_GAP * (STAFF_LINES - 1);
 const STAFF_CENTER_Y = (STAFF_TOP + STAFF_BOTTOM) / 2;
@@ -193,6 +196,68 @@ const RestSixteenth = ({ x, y, fill }: { x: number; y: number; fill: string }) =
   );
 };
 
+type BeamGroupData = {
+  events: EventRender[];
+  stemUp: boolean;
+  primaryBeamY: number;
+};
+
+const computeBeamGroups = (renderEvents: EventRender[]): BeamGroupData[] => {
+  const byMeasure = new Map<number, EventRender[]>();
+  for (const e of renderEvents) {
+    if (!byMeasure.has(e.measureIndex)) byMeasure.set(e.measureIndex, []);
+    byMeasure.get(e.measureIndex)!.push(e);
+  }
+
+  const allGroups: BeamGroupData[] = [];
+
+  for (const events of byMeasure.values()) {
+    const sorted = [...events].sort((a, b) => a.step - b.step);
+    let pending: EventRender[] = [];
+    let nextStep = -1;
+    let beat = -1;
+    let pendingDur: DurationToken | null = null;
+
+    const flush = () => {
+      if (pending.length >= 2) {
+        const avgY = pending.reduce((s, e) => s + (e.notes[0]?.y ?? STAFF_CENTER_Y), 0) / pending.length;
+        const stemUp = avgY > STAFF_CENTER_Y;
+        const baseYs = pending.map(e =>
+          stemUp ? e.notes[e.notes.length - 1].y : e.notes[0].y
+        );
+        const primaryBeamY = stemUp
+          ? Math.min(...baseYs.map(y => y - STEM_HEIGHT))
+          : Math.max(...baseYs.map(y => y + STEM_HEIGHT));
+        allGroups.push({ events: [...pending], stemUp, primaryBeamY });
+      }
+      pending = [];
+      nextStep = -1;
+      beat = -1;
+      pendingDur = null;
+    };
+
+    for (const e of sorted) {
+      if (e.isRest) { flush(); continue; }
+      const safeLen = normalizeLenForDuration(e.len);
+      const dur = lenToDuration(safeLen);
+      if (dur !== "8" && dur !== "16") { flush(); continue; }
+      const eBeat = Math.floor(e.step / BEAT_STEPS);
+      if (e.step === nextStep && eBeat === beat && dur === pendingDur && pending.length > 0) {
+        pending.push(e);
+      } else {
+        flush();
+        pending = [e];
+        beat = eBeat;
+        pendingDur = dur;
+      }
+      nextStep = e.step + safeLen;
+    }
+    flush();
+  }
+
+  return allGroups;
+};
+
 const buildRenderEvents = (
   measuresEvents: TabEvent[][],
   measureStartXs: number[],
@@ -286,6 +351,18 @@ export default function StaffPreview({
     () => buildRenderEvents(measuresEvents, measureStartXs, stepWidth, stepUnit),
     [measuresEvents, measureStartXs, stepWidth, stepUnit]
   );
+
+  const beamGroups = useMemo(() => computeBeamGroups(renderEvents), [renderEvents]);
+
+  const beamMembership = useMemo(() => {
+    const map = new Map<string, { stemUp: boolean; stemTipY: number }>();
+    for (const group of beamGroups) {
+      for (const e of group.events) {
+        map.set(`${e.measureIndex}-${e.step}`, { stemUp: group.stemUp, stemTipY: group.primaryBeamY });
+      }
+    }
+    return map;
+  }, [beamGroups]);
 
   const activeSlot =
     currentCursor === null
@@ -397,14 +474,15 @@ export default function StaffPreview({
             currentCursor !== null &&
             currentCursor.measureIndex === event.measureIndex &&
             currentCursor.stepIndex === event.step;
-          const stemUp = event.notes[0].y > STAFF_CENTER_Y;
+          const beamInfo = beamMembership.get(`${event.measureIndex}-${event.step}`);
+          const stemUp = beamInfo ? beamInfo.stemUp : event.notes[0].y > STAFF_CENTER_Y;
           const stemX = stemUp ? event.notes[event.notes.length - 1].x + NOTE_RADIUS_X : event.notes[0].x - NOTE_RADIUS_X;
           const stemBaseY = stemUp ? event.notes[event.notes.length - 1].y : event.notes[0].y;
-          const stemTipY = stemUp ? stemBaseY - STEM_HEIGHT : stemBaseY + STEM_HEIGHT;
+          const stemTipY = beamInfo ? beamInfo.stemTipY : (stemUp ? stemBaseY - STEM_HEIGHT : stemBaseY + STEM_HEIGHT);
           const noteFill = duration === "w" || duration === "h" ? "#ffffff" : isActive ? "#d35400" : "#111";
           const noteStroke = isActive ? "#d35400" : "#111";
           const needStem = duration !== "w";
-          const flagCount = duration === "16" ? 2 : duration === "8" ? 1 : 0;
+          const flagCount = beamInfo ? 0 : (duration === "16" ? 2 : duration === "8" ? 1 : 0);
 
           return (
             <g key={`note-${event.measureIndex}-${event.step}`}>
@@ -495,6 +573,30 @@ export default function StaffPreview({
                 >
                   3
                 </text>
+              )}
+            </g>
+          );
+        })}
+
+        {beamGroups.map((group) => {
+          const first = group.events[0];
+          const last = group.events[group.events.length - 1];
+          if (!first || !last) return null;
+          const noteX = (e: EventRender) => e.notes[0]?.x ?? 0;
+          const stemXOf = (e: EventRender) =>
+            group.stemUp ? noteX(e) + NOTE_RADIUS_X : noteX(e) - NOTE_RADIUS_X;
+          const x1 = stemXOf(first);
+          const x2 = stemXOf(last);
+          const safeLen = normalizeLenForDuration(first.len);
+          const has2Beams = lenToDuration(safeLen) === "16";
+          const secondaryY = group.stemUp
+            ? group.primaryBeamY + BEAM_GAP
+            : group.primaryBeamY - BEAM_GAP;
+          return (
+            <g key={`beam-group-${first.measureIndex}-${first.step}`}>
+              <line x1={x1} x2={x2} y1={group.primaryBeamY} y2={group.primaryBeamY} stroke="#111" strokeWidth={BEAM_THICKNESS} strokeLinecap="butt" />
+              {has2Beams && (
+                <line x1={x1} x2={x2} y1={secondaryY} y2={secondaryY} stroke="#111" strokeWidth={BEAM_THICKNESS} strokeLinecap="butt" />
               )}
             </g>
           );
