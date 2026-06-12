@@ -67,6 +67,8 @@ export default function Home() {
   const [tieInputMode, setTieInputMode] = useState(false);
 
   const [activeTrackIndex, setActiveTrackIndex] = useState(0);
+  // "wrap" packs measures into systems; "horizontal" keeps one endless row.
+  const [layoutMode, setLayoutMode] = useState<"wrap" | "horizontal">("wrap");
   // Hidden tracks are a view preference, not part of the canonical model.
   const [hiddenTracks, setHiddenTracks] = useState<Set<number>>(new Set());
   const trackCount = tabData.tracks.length;
@@ -555,6 +557,7 @@ export default function Home() {
     "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
     "--notation-scale": String(notationScale),
+    ...(layoutMode === "horizontal" ? { width: "max-content" } : {}),
   } as CSSProperties;
 
   // Wrapped multi-system layout: pack measures into rows that fit the
@@ -564,15 +567,18 @@ export default function Home() {
     const padding = 18;
     const fallbackWidth = tabLabelWidth + stepWidth * 16 * 2;
     const availableWidth =
-      notationContainerWidth > 0
-        ? notationContainerWidth / notationScale - padding
-        : fallbackWidth;
+      layoutMode === "horizontal"
+        ? Number.POSITIVE_INFINITY
+        : notationContainerWidth > 0
+          ? notationContainerWidth / notationScale - padding
+          : fallbackWidth;
     return computeSystems(
       sharedMeasureWidths,
       tabLabelWidth,
       availableWidth
     );
   }, [
+    layoutMode,
     sharedMeasureWidths,
     notationContainerWidth,
     notationScale,
@@ -593,6 +599,22 @@ export default function Home() {
       return;
     }
 
+    if (layoutMode === "horizontal") {
+      if (prevPlaybackSystemIndexRef.current === currentPlaybackMeasureIndex) {
+        return;
+      }
+      const container = timelineScrollRef.current;
+      const startX = systems[0]?.startXs[currentPlaybackMeasureIndex];
+      if (container && startX !== undefined) {
+        container.scrollTo({
+          left: Math.max(0, (startX - 24) * notationScale),
+          behavior: "auto",
+        });
+      }
+      prevPlaybackSystemIndexRef.current = currentPlaybackMeasureIndex;
+      return;
+    }
+
     const systemIndex = systemIndexByMeasure.get(currentPlaybackMeasureIndex) ?? null;
     if (systemIndex === null || prevPlaybackSystemIndexRef.current === systemIndex) {
       return;
@@ -600,7 +622,7 @@ export default function Home() {
 
     systemRefs.current[systemIndex]?.scrollIntoView({ block: "nearest", behavior: "auto" });
     prevPlaybackSystemIndexRef.current = systemIndex;
-  }, [currentPlaybackMeasureIndex, isPlaying, systemIndexByMeasure]);
+  }, [currentPlaybackMeasureIndex, isPlaying, layoutMode, notationScale, systemIndexByMeasure, systems]);
 
   useEffect(() => {
     setSelected((prev) => {
@@ -716,6 +738,35 @@ export default function Home() {
       type: "custom" as const,
       content: (
         <div>
+          <div className={styles.menuSectionTitle}>Layout</div>
+          <div className={styles.modeToggleRow}>
+            <button
+              type="button"
+              className={`${styles.modeToggleButton} ${
+                layoutMode === "wrap" ? styles.modeToggleActive : ""
+              }`.trim()}
+              onClick={() => setLayoutMode("wrap")}
+            >
+              Wrap
+            </button>
+            <button
+              type="button"
+              className={`${styles.modeToggleButton} ${
+                layoutMode === "horizontal" ? styles.modeToggleActive : ""
+              }`.trim()}
+              onClick={() => setLayoutMode("horizontal")}
+            >
+              Horizontal
+            </button>
+          </div>
+        </div>
+      ),
+    },
+    { type: "separator" as const },
+    {
+      type: "custom" as const,
+      content: (
+        <div>
           <div className={styles.menuSectionTitle}>Input Mode</div>
           <div className={styles.modeToggleRow}>
             <button
@@ -740,7 +791,7 @@ export default function Home() {
         </div>
       ),
     },
-  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, trackCount, safeActiveTrackIndex, handleRenameTrack, handleDeleteTrack, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile, handleImportMusicXmlFile]);
+  ], [autoShift, layoutMode, tabData, canUndo, canRedo, isPlaying, totalMeasures, trackCount, safeActiveTrackIndex, handleRenameTrack, handleDeleteTrack, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile, handleImportMusicXmlFile]);
 
   return (
     <div className={styles.page}>
