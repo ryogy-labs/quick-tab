@@ -22,12 +22,14 @@ import {
   KEY_SIGNATURES,
   KeySignature,
   SIXTEENTH_STEPS,
-  STEPS_PER_MEASURE,
+  TIME_SIGNATURES,
+  TimeSignature,
+  sanitizeTabData,
   STRINGS_COUNT,
   TUNING,
-  TabDataV3,
+  TabData,
   clampTempo,
-  createEmptyTabDataV3,
+  createEmptyTabData,
   findEventAtStep,
   findOwningEventStep,
   getMeasureEvents,
@@ -41,11 +43,11 @@ const TAB_SLOT_WIDTH = 48;
 const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
 
-const toGlobalStep = (cursor: PlayCursor): number =>
-  cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
+const toGlobalStep = (cursor: PlayCursor, measureTicks: number): number =>
+  cursor.measureIndex * measureTicks + cursor.stepIndex;
 
 export default function Home() {
-  const [tabData, setTabData] = useState<TabDataV3>(createEmptyTabDataV3);
+  const [tabData, setTabData] = useState<TabData>(createEmptyTabData);
   const [selected, setSelected] = useState<CellPosition>({
     measureIndex: 0,
     rowIndex: 5,
@@ -73,7 +75,7 @@ export default function Home() {
 
   useTabStorage({
     tabData,
-    onLoad: useCallback((data: TabDataV3) => setTabData(data), []),
+    onLoad: useCallback((data: TabData) => setTabData(data), []),
   });
 
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +92,7 @@ export default function Home() {
     tabMeasureWidth,
   });
   const {
+    measureTicks,
     selectedMeasureIndex,
     events,
     selectedEvent,
@@ -119,7 +122,7 @@ export default function Home() {
 
   const { commit: commitTabData, undo: handleUndo, redo: handleRedo, canUndo, canRedo } = useUndoRedo({
     tabData,
-    onDataChange: useCallback((data: TabDataV3) => setTabData(data), []),
+    onDataChange: useCallback((data: TabData) => setTabData(data), []),
   });
 
   const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
@@ -147,14 +150,14 @@ export default function Home() {
   };
 
   const getClampedDisplayStep = (stepIndex: number, measureIndex: number): number => {
-    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     return Math.max(0, Math.min(displaySteps - 1, stepIndex));
   };
 
   const getRangeSelectableStep = (measureIndex: number, stepIndex: number): number => {
     const clampedStep = getClampedDisplayStep(stepIndex, measureIndex);
     const measureEvents = getMeasureEvents(tabData, measureIndex);
-    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     return findOwningEventStep(measureEvents, clampedStep, displaySteps);
   };
 
@@ -265,6 +268,7 @@ export default function Home() {
     setSelectedRange,
     clearDigitBuffer,
     selectedMeasureIndex,
+    measureTicks,
     selectedMeasureDisplaySteps,
     measureDisplayStepsByMeasure,
     events,
@@ -306,6 +310,7 @@ export default function Home() {
     selectedMeasureIndex,
     totalMeasures,
     selectedRange,
+    measureTicks,
     measureDisplayStepsByMeasure,
     getClampedDisplayStep,
   });
@@ -418,15 +423,15 @@ export default function Home() {
     }
 
     const measureEvents = getMeasureEvents(tabData, measureIndex);
-    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     const owningStep = findOwningEventStep(measureEvents, stepIndex, displaySteps);
     return isStepInRange(selectedRange, measureIndex, owningStep);
   };
 
   const totalDisplaySlots = displayCells.length;
-  const currentGlobalStep = playCursor ? toGlobalStep(playCursor) : null;
+  const currentGlobalStep = playCursor ? toGlobalStep(playCursor, measureTicks) : null;
   const currentPlaybackMeasureIndex =
-    currentGlobalStep === null ? null : Math.floor(currentGlobalStep / STEPS_PER_MEASURE);
+    currentGlobalStep === null ? null : Math.floor(currentGlobalStep / measureTicks);
   const notationStyle = {
     "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
@@ -515,6 +520,30 @@ export default function Home() {
     { type: "separator" as const },
     { type: "button" as const, label: "Export JSON", onClick: handleExport },
     { type: "file" as const, label: "Import JSON", accept: "application/json", onChange: handleImportFile },
+    { type: "separator" as const },
+    {
+      type: "custom" as const,
+      content: (
+        <div>
+          <div className={styles.menuSectionTitle}>Time Sig</div>
+          <select
+            className={styles.keySelect}
+            value={tabData.timeSig}
+            disabled={isPlaying}
+            onChange={(e) => {
+              const next = e.target.value as TimeSignature;
+              // allowOverflow keeps existing events visible as overflow
+              // instead of clamping them into the shorter measure
+              commitTabData(sanitizeTabData({ ...tabData, timeSig: next }, true));
+            }}
+          >
+            {TIME_SIGNATURES.map((sig) => (
+              <option key={sig} value={sig}>{sig}</option>
+            ))}
+          </select>
+        </div>
+      ),
+    },
     { type: "separator" as const },
     {
       type: "custom" as const,
@@ -791,7 +820,7 @@ export default function Home() {
                               const owningStep = findOwningEventStep(
                                 measureEvents,
                                 stepIndex,
-                                measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE
+                                measureDisplayStepsByMeasure[measureIndex] ?? measureTicks
                               );
                               setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
                               return;

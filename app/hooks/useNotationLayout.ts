@@ -4,8 +4,8 @@ import { useMemo } from "react";
 import {
   CellPosition,
   SIXTEENTH_STEPS,
-  STEPS_PER_MEASURE,
-  TabDataV3,
+  TabData,
+  getDataMeasureTicks,
   TabEvent,
   eventsToGrid,
   findEventAtStep,
@@ -23,7 +23,7 @@ export type DisplayCell = {
 };
 
 type UseNotationLayoutParams = {
-  tabData: TabDataV3;
+  tabData: TabData;
   selected: CellPosition;
   inputLen: number;
   isRestMode: boolean;
@@ -44,6 +44,7 @@ export function useNotationLayout({
   tabLabelWidth,
   tabMeasureWidth,
 }: UseNotationLayoutParams) {
+  const measureTicks = getDataMeasureTicks(tabData);
   const selectedMeasureIndex = Math.max(
     0,
     Math.min(tabData.measures.length - 1, selected.measureIndex)
@@ -68,24 +69,25 @@ export function useNotationLayout({
   const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
     const localMin = measure.events.reduce(
       (min, event) => Math.min(min, Math.max(1, event.len)),
-      STEPS_PER_MEASURE
+      measureTicks
     );
     return Math.min(globalMin, localMin);
-  }, STEPS_PER_MEASURE);
+  }, measureTicks);
   const shouldRenderEveryStep = activeInputLen > SIXTEENTH_STEPS;
   const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
   const displayUnit =
     shouldRenderEveryStep || effectiveMinLen <= SIXTEENTH_STEPS
       ? SIXTEENTH_STEPS
       : SIXTEENTH_STEPS * 2;
-  const displaySlots = STEPS_PER_MEASURE / displayUnit;
-  const stepWidth = tabMeasureWidth / displaySlots;
+  // Keep per-16th-slot width constant regardless of time signature, so a
+  // 3/4 measure renders narrower than a 4/4 one instead of stretching.
+  const stepWidth = (tabMeasureWidth / 16) * (displayUnit / SIXTEENTH_STEPS);
 
   const blockedStepsByMeasure = useMemo(
     () =>
       tabData.measures.map((measure) => {
         const visibleSteps = getVisibleStepsForMeasure(
-          getMeasureDisplaySteps(measure.events, displayUnit),
+          getMeasureDisplaySteps(measure.events, displayUnit, measureTicks),
           displayUnit
         );
         const set = new Set<number>();
@@ -94,7 +96,7 @@ export function useNotationLayout({
             isStepBlockedForNewStart(
               measure.events,
               step,
-              getMeasureDisplaySteps(measure.events, displayUnit)
+              getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
             )
           ) {
             set.add(step);
@@ -102,23 +104,25 @@ export function useNotationLayout({
         });
         return set;
       }),
-    [displayUnit, tabData.measures]
+    [displayUnit, measureTicks, tabData.measures]
   );
   const overflowingMeasureSet = useMemo(
     () =>
       new Set(
         tabData.measures
-          .map((measure, index) => (isMeasureOverflowing(measure.events) ? index : -1))
+          .map((measure, index) =>
+            isMeasureOverflowing(measure.events, measureTicks) ? index : -1
+          )
           .filter((index) => index >= 0)
       ),
-    [tabData.measures]
+    [measureTicks, tabData.measures]
   );
   const measureDisplayStepsByMeasure = useMemo(
     () =>
       tabData.measures.map((measure) =>
-        getMeasureDisplaySteps(measure.events, displayUnit)
+        getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
       ),
-    [displayUnit, tabData.measures]
+    [displayUnit, measureTicks, tabData.measures]
   );
   const measureVisibleStepsByMeasure = useMemo(
     () =>
@@ -132,14 +136,14 @@ export function useNotationLayout({
     [measureVisibleStepsByMeasure]
   );
   const selectedMeasureDisplaySteps =
-    measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
+    measureDisplayStepsByMeasure[selectedMeasureIndex] ?? measureTicks;
   const blockedStepSet = blockedStepsByMeasure[selectedMeasureIndex] ?? new Set<number>();
   const measureGrids = useMemo(
     () =>
       tabData.measures.map((measure, index) =>
-        eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? STEPS_PER_MEASURE)
+        eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? measureTicks)
       ),
-    [measureDisplayStepsByMeasure, tabData.measures]
+    [measureDisplayStepsByMeasure, measureTicks, tabData.measures]
   );
   const displayCells = useMemo<DisplayCell[]>(
     () =>
@@ -168,6 +172,7 @@ export function useNotationLayout({
   const timelineWidth = measureStartXs[measureStartXs.length - 1] ?? tabLabelWidth;
 
   return {
+    measureTicks,
     selectedMeasureIndex,
     events,
     selectedEvent,
