@@ -1,6 +1,7 @@
 // Canonical time resolution. 1 step === 1 tick; a quarter note spans
-// TICKS_PER_QUARTER ticks, so dotted/triplet variants stay integral.
-export const TICKS_PER_QUARTER = 24;
+// TICKS_PER_QUARTER ticks. 960 matches Guitar Pro's internal PPQ and keeps
+// 64ths, dotted values, triplets, and quintuplets integral.
+export const TICKS_PER_QUARTER = 960;
 // Historical resolution of v1-v3 documents. Legacy migration paths must use
 // these literals (not the derived constants) so raising TICKS_PER_QUARTER
 // later rescales old data instead of silently misreading it.

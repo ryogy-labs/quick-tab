@@ -31,7 +31,7 @@
 - `app/services/musicXml.ts`: canonical model から MusicXML への format adapter(export のみ)を担う
 
 ## Core Flows
-- エディタは tick 単位（4 分音符 = 24 tick）の内部グリッドで動作する。拍子（4/4, 3/4, 2/4, 6/8）はドキュメント単位で選択でき、measure 容量はその拍子から導出される
+- エディタは tick 単位（4 分音符 = 960 tick、GP 互換 PPQ）の内部グリッドで動作する。拍子（4/4, 3/4, 2/4, 6/8）はドキュメント単位で選択でき、measure 容量はその拍子から導出される
 - 表示スロットは「イベント開始位置＋空き領域の 16 分単位位置」で構成し、イベントスロットの幅は音価に対して劣線形（`len^0.62`）に比例させる（音価比例スペーシング）。イベント持続中の tick は独立したスロットを持たず、イベント開始スロットがその領域全体を占める
 - 音価を先に選び、その後セルまたはフレットボード上の位置を指定してフレット番号を入力する。選択中イベントがある場合は、そのイベント長をツールバーへ同期する
 - Technique(slide / hammer / pulloff / bend / vibrato)は、選択中の note に対してツールバーの Fx パレットから付与/解除できる。TAB グリッドではフレット番号の後ろに省略グリフ(s/h/p/b/~)、五線譜ではノート上部に大文字グリフを表示する。MusicXML export への technique 反映は未対応
@@ -62,17 +62,17 @@
 - 編集・選択・フレットボード入力はアクティブトラック1本を対象とする。トラックバーまたは他トラックのセルをタップしてアクティブトラックを切り替える
 - 譜面はシステム(行)ごとに可視トラックの「五線譜+TAB」ペアを縦積みで表示する。measure 幅は可視トラック中の最大幅で揃え、小節線を全トラックでアライメントする。トラックごとの表示/非表示は UI 状態(👁 トグル)で、アクティブトラックは常に表示される
 - トラックの追加・リネーム・削除(最後の1本は不可)を提供する。非アクティブトラックのセルはタップでトラック切替+セル選択になる
-- 時間表現は tick が正本で、`ticksPerQuarter = 24`（コード上の `TICKS_PER_QUARTER` を正とする）。イベントの `step` / `len` は tick 値であり、v3 までの step と同一スケール（1 step = 1 tick）
-- `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出する。全拍子は measure 容量が 96 tick 以下になるよう選定されている
+- 時間表現は tick が正本で、`ticksPerQuarter = 960`（コード上の `TICKS_PER_QUARTER` を正とする）。イベントの `step` / `len` は tick 値。v1〜v3 のレガシー step（24 TPQ スケール）は移行時に現行 TPQ へリスケールされる
+- `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出する。全拍子は measure 容量が 4/4 の容量（`TICKS_PER_QUARTER × 4`）以下になるよう選定されている
 - 拍子変更時は既存イベントを保持し、新容量を超える部分は overflow として扱う
 - `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabData` でバリデーションし、不正値は `"C"` にフォールバックする
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
 - Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique?, tie? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する。`tie` は直前の同一弦・同一フレット note から音を受ける指定で、note 単位に保存する
 - Rest event は `step`, `len`, `rest: true`, optional `dot` / `triplet` を持つ
-- 16 分音符 = 6 tick として表現し、dotted / triplet を整数 tick で扱う
+- 16 分音符 = `TICKS_PER_QUARTER / 4` tick として表現し、dotted / triplet（および 5 連符相当まで）を整数 tick で扱える
 - Measure clipboard と range clipboard はメモリ上の一時状態であり、リロード後には残らない
 - 選択セル、選択範囲、再生状態、再生カーソル、undo/redo 履歴、数字入力バッファ、ズーム率、モバイル判定は UI 状態であり永続化しない
-- Import 時や保存復元時は `normalizeToTabData` と `sanitizeTabData` を通し、不正値や競合イベントを補正した上で扱う。異なる `ticksPerQuarter` を持つ v4 ファイルは読込時に 24 へリスケールする
+- Import 時や保存復元時は `normalizeToTabData` と `sanitizeTabData` を通し、不正値や競合イベントを補正した上で扱う。異なる `ticksPerQuarter` を持つ v4/v5 ファイルは読込時に現行 TPQ へリスケールする
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
 - `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
 - イベントの衝突判定(sanitize / canPlaceEvent)と blocked / owning 判定は、生の `len` ではなく実効占有ステップ数を基準とする。これにより連続する三連符などが正しく共存できる
@@ -80,10 +80,10 @@
 - Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して `tabModel.ts` で管理する。ノート削除時も後続を左詰めする。各関数は `autoShift: boolean` を引数に取り、page.tsx 側で渡す
 
 ## Future Time Representation
-- 現行 canonical model は `TabDataV4` の tick-based 表現（`ticksPerQuarter = 24`）。`96 stepsPerMeasure` 固定は撤廃済みで、measure 容量は拍子から導出する
+- 現行 canonical model は `TabDataV5` の tick-based 表現（`ticksPerQuarter = 960`、GP の内部 PPQ と一致）。measure 容量は拍子から導出する
 - イベントのフィールド名は `step` / `len` のまま tick 値として扱う。`startTick` / `durationTick` への改名は外部形式 adapter 整備時に再検討する
-- より細かい分解能への引き上げ先は **960 TPQ**（GP の内部分解能と一致、5連符まで整数）とし、複雑な tuplet 対応または細かい音価の入力 UI が必要になった時点で行う
-- 音価系の定数（フリック音価、DURATION_OPTIONS、譜面の音価マップ、MusicXML の type/休符分解）はすべて `TICKS_PER_QUARTER` からの派生で定義する。v1〜v3 のレガシー移行経路だけは歴史的な 24 TPQ のリテラル（`LEGACY_TPQ`）を使い、移行時に現行 TPQ へリスケールする。これにより TPQ の引き上げは定数1箇所の変更で完結する（再生のスケジューラ化も完了済みのため、TPQ 引き上げは定数変更のみで可能）
+- **960 TPQ への引き上げは完了済み**。64分・付点・三連・5連符まで整数 tick で表現できる（入力 UI は現状 16分+付点/三連まで）
+- 音価系の定数（フリック音価、DURATION_OPTIONS、譜面の音価マップ、MusicXML の type/休符分解）はすべて `TICKS_PER_QUARTER` からの派生で定義する。v1〜v3 のレガシー移行経路だけは歴史的な 24 TPQ のリテラル（`LEGACY_TPQ`）を使い、移行時に現行 TPQ へリスケールする
 - `dot` / `triplet` は将来的には長さ計算の正本ではなく、入力補助または表示補助メタデータとして扱う余地を残す
 - UI 上の 16 分単位グリッド、フリック入力、選択セルの挙動は直ちに廃止せず、内部 canonical model と表示スロットの変換層を介して段階的に移行する
 - 互換機能を追加する場合も、外部形式を直接 UI に接続せず、`canonical model <-> format adapter` の境界を維持する
