@@ -1,7 +1,23 @@
-export const STEPS_PER_MEASURE = 96;
+// Canonical time resolution. 1 step === 1 tick; a quarter note spans
+// TICKS_PER_QUARTER ticks, so dotted/triplet variants stay integral.
+export const TICKS_PER_QUARTER = 24;
+// 4/4 measure capacity, kept as the default for legacy (v3) call paths.
+export const STEPS_PER_MEASURE = TICKS_PER_QUARTER * 4;
 export const STRINGS_COUNT = 6;
 export const MAX_FRET = 24;
-export const SIXTEENTH_STEPS = STEPS_PER_MEASURE / 16;
+export const SIXTEENTH_STEPS = TICKS_PER_QUARTER / 4;
+
+// Supported time signatures. All are capped so a measure never exceeds
+// STEPS_PER_MEASURE ticks, which keeps legacy len-clamp paths valid.
+export type TimeSignature = "4/4" | "3/4" | "2/4" | "6/8";
+
+export const TIME_SIGNATURES: TimeSignature[] = ["4/4", "3/4", "2/4", "6/8"];
+
+/** Measure capacity in ticks for a time signature. */
+export const getMeasureTicks = (timeSig: TimeSignature): number => {
+  const [beats, unit] = timeSig.split("/").map(Number);
+  return Math.round(beats * TICKS_PER_QUARTER * (4 / unit));
+};
 
 export const TUNING = ["E4", "B3", "G3", "D3", "A2", "E2"];
 
@@ -72,6 +88,23 @@ export type TabDataV3 = {
   tuning: string[];
   measures: TabMeasureV3[];
 };
+
+export type TabDataV4 = {
+  version: "v4";
+  tempo: number;
+  timeSig: TimeSignature;
+  key?: KeySignature;
+  ticksPerQuarter: number;
+  tuning: string[];
+  measures: TabMeasureV3[];
+};
+
+/** Current canonical model. */
+export type TabData = TabDataV4;
+
+/** Measure capacity in ticks for the document's time signature. */
+export const getDataMeasureTicks = (data: TabData): number =>
+  getMeasureTicks(data.timeSig);
 
 export type TabMeasureV2 = {
   events: TabEvent[];
@@ -199,16 +232,40 @@ export const DURATION_OPTIONS: DurationOption[] = [
   { label: "Rest", len: 6, isRest: true },
 ];
 
-export const createEmptyTabDataV3 = (): TabDataV3 => ({
-  version: "v3",
+export const createEmptyTabData = (): TabData => ({
+  version: "v4",
   tempo: 120,
   timeSig: "4/4",
   key: "C",
-  stepsPerMeasure: STEPS_PER_MEASURE,
+  ticksPerQuarter: TICKS_PER_QUARTER,
   tuning: [...TUNING],
   measures: [{ events: [] }],
 });
 
+export const sanitizeTabData = (
+  data: TabData,
+  allowOverflow = false
+): TabData => {
+  const measureTicks = getMeasureTicks(data.timeSig);
+  const sanitizedMeasures =
+    data.measures.length > 0
+      ? data.measures.map((measure) => ({
+          events: sanitizeEvents(
+            measure?.events ?? [],
+            measureTicks,
+            allowOverflow
+          ),
+        }))
+      : [{ events: [] }];
+  return {
+    ...data,
+    version: "v4",
+    ticksPerQuarter: TICKS_PER_QUARTER,
+    measures: sanitizedMeasures,
+  };
+};
+
+/** Legacy v3 sanitize, used only on the migration path. */
 export const sanitizeTabDataV3 = (
   data: TabDataV3,
   allowOverflow = false
@@ -230,6 +287,21 @@ export const sanitizeTabDataV3 = (
     measures: sanitizedMeasures,
   };
 };
+
+/** v3 -> v4: tick semantics are identical (1 step = 1 tick, TPQ = 24). */
+export const migrateV3ToV4 = (v3: TabDataV3, allowOverflow = false): TabData =>
+  sanitizeTabData(
+    {
+      version: "v4",
+      tempo: clampTempo(v3.tempo),
+      timeSig: "4/4",
+      key: v3.key ?? "C",
+      ticksPerQuarter: TICKS_PER_QUARTER,
+      tuning: v3.tuning,
+      measures: v3.measures,
+    },
+    allowOverflow
+  );
 
 export const migrateV2ToV3 = (v2: TabDataV2): TabDataV3 => {
   const multiplier = v2.stepsPerMeasure === STEPS_PER_MEASURE ? 1 : 6;
@@ -283,7 +355,7 @@ export const cloneMeasure = (measure: TabMeasureV3): TabMeasureV3 => ({
 });
 
 export const copyMeasure = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number
 ): TabMeasureV3 => {
   const source = data.measures.at(measureIndex) ?? { events: [] };
@@ -291,49 +363,49 @@ export const copyMeasure = (
 };
 
 export const duplicateMeasure = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number
-): TabDataV3 => {
+): TabData => {
   const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
   const duplicate = copyMeasure(data, safeIndex);
   const measures = [...data.measures];
   measures.splice(safeIndex + 1, 0, duplicate);
-  return sanitizeTabDataV3({ ...data, measures });
+  return sanitizeTabData({ ...data, measures });
 };
 
 export const pasteMeasure = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number,
   source: TabMeasureV3
-): TabDataV3 => {
+): TabData => {
   const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
   const measures = [...data.measures];
   measures[safeIndex] = cloneMeasure(source);
-  return sanitizeTabDataV3({ ...data, measures });
+  return sanitizeTabData({ ...data, measures });
 };
 
 export const insertMeasure = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number
-): TabDataV3 => {
+): TabData => {
   const safeIndex = clampInt(measureIndex, 0, data.measures.length);
   const measures = [...data.measures];
   measures.splice(safeIndex, 0, { events: [] });
-  return sanitizeTabDataV3({ ...data, measures });
+  return sanitizeTabData({ ...data, measures });
 };
 
 export const deleteMeasure = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number
-): TabDataV3 => {
+): TabData => {
   if (data.measures.length <= 1) {
-    return sanitizeTabDataV3(data);
+    return sanitizeTabData(data);
   }
 
   const safeIndex = clampInt(measureIndex, 0, data.measures.length - 1);
   const measures = [...data.measures];
   measures.splice(safeIndex, 1);
-  return sanitizeTabDataV3({ ...data, measures });
+  return sanitizeTabData({ ...data, measures });
 };
 
 export const normalizeStepRange = (
@@ -942,9 +1014,11 @@ export const toFrequency = (midiNote: number): number =>
 type RawTabData = {
   version?: unknown;
   tempo?: unknown;
+  timeSig?: unknown;
   key?: unknown;
   tuning?: unknown;
   stepsPerMeasure?: unknown;
+  ticksPerQuarter?: unknown;
   measures?: unknown;
 };
 
@@ -1085,6 +1159,85 @@ export const normalizeToTabDataV3 = (
   return null;
 };
 
+/**
+ * Normalize any known persisted format (v4/v3/v2/v1) into the current
+ * canonical TabData. Returns null when the payload is unrecognizable.
+ */
+export const normalizeToTabData = (
+  raw: unknown,
+  allowOverflow = false
+): TabData | null => {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const candidate = raw as RawTabData;
+
+  if (candidate.version === "v4") {
+    const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
+    if (measures.length === 0) {
+      return null;
+    }
+
+    const timeSig: TimeSignature =
+      typeof candidate.timeSig === "string" &&
+      (TIME_SIGNATURES as string[]).includes(candidate.timeSig)
+        ? (candidate.timeSig as TimeSignature)
+        : "4/4";
+
+    // Rescale tick values when the payload uses a different resolution.
+    const rawTpq =
+      typeof candidate.ticksPerQuarter === "number" && candidate.ticksPerQuarter > 0
+        ? Math.trunc(candidate.ticksPerQuarter)
+        : TICKS_PER_QUARTER;
+    const scale = TICKS_PER_QUARTER / rawTpq;
+
+    const normalizedMeasures = measures
+      .map((measure) => {
+        const typed = measure as { events?: unknown };
+        if (!Array.isArray(typed.events)) {
+          return null;
+        }
+        const scaled = (typed.events as TabEvent[]).map((event) => ({
+          ...event,
+          step: Math.round(event.step * scale),
+          len: Math.round(event.len * scale),
+        }));
+        return { events: scaled };
+      })
+      .filter((measure): measure is TabMeasureV3 => measure !== null);
+
+    if (normalizedMeasures.length === 0) {
+      return null;
+    }
+
+    const rawKey = candidate.key;
+    const key: KeySignature =
+      typeof rawKey === "string" && rawKey in KEY_ACCIDENTAL_COUNTS
+        ? (rawKey as KeySignature)
+        : "C";
+
+    return sanitizeTabData(
+      {
+        version: "v4",
+        tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
+        timeSig,
+        key,
+        ticksPerQuarter: TICKS_PER_QUARTER,
+        tuning:
+          Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
+            ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
+            : [...TUNING],
+        measures: normalizedMeasures,
+      },
+      allowOverflow
+    );
+  }
+
+  const legacy = normalizeToTabDataV3(raw, allowOverflow);
+  return legacy ? migrateV3ToV4(legacy, allowOverflow) : null;
+};
+
 // --- Sequential mode ---
 // These functions implement the Sequential input mode shift logic.
 // They are pure data transforms and live here rather than in page.tsx.
@@ -1104,7 +1257,8 @@ export type SequentialPlacementContext = {
 export const getSequentialPlacementContext = (
   measureEvents: TabEvent[],
   targetStepIndex: number,
-  autoShift: boolean
+  autoShift: boolean,
+  measureTicks = STEPS_PER_MEASURE
 ): SequentialPlacementContext => {
   const oldEvent = findEventAtStep(measureEvents, targetStepIndex);
   if (!autoShift || !oldEvent) {
@@ -1116,7 +1270,7 @@ export const getSequentialPlacementContext = (
   }
 
   const fromStep = oldEvent.step + getEventOccupiedSteps(oldEvent);
-  const sanitized = sanitizeEvents(measureEvents, STEPS_PER_MEASURE, true);
+  const sanitized = sanitizeEvents(measureEvents, measureTicks, true);
   return {
     oldEvent,
     placementEvents: sanitized.filter((event) => event.step < fromStep),
@@ -1134,25 +1288,26 @@ export const applySequentialShift = (
   deferredEvents: TabEvent[],
   oldEvent: TabEvent | null,
   newEvent: TabEvent | null,
-  autoShift: boolean
+  autoShift: boolean,
+  measureTicks = STEPS_PER_MEASURE
 ): TabEvent[] => {
   const combinedEvents = [...placedEvents, ...deferredEvents];
 
   if (!autoShift || !oldEvent || !newEvent) {
-    return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
+    return sanitizeEvents(combinedEvents, measureTicks, true);
   }
 
   const oldOccupied = getEventOccupiedSteps(oldEvent);
   const newOccupied = getEventOccupiedSteps(newEvent);
   const delta = newOccupied - oldOccupied;
   if (delta === 0) {
-    return sanitizeEvents(combinedEvents, STEPS_PER_MEASURE, true);
+    return sanitizeEvents(combinedEvents, measureTicks, true);
   }
 
   const fromStep = oldEvent.step + oldOccupied;
   return sanitizeEvents(
-    shiftEventsFromStep(combinedEvents, fromStep, delta, STEPS_PER_MEASURE),
-    STEPS_PER_MEASURE,
+    shiftEventsFromStep(combinedEvents, fromStep, delta, measureTicks),
+    measureTicks,
     true
   );
 };
@@ -1164,9 +1319,10 @@ export const applySequentialShift = (
 export const applySequentialDeleteShift = (
   events: TabEvent[],
   deletedEvent: TabEvent | null,
-  autoShift: boolean
+  autoShift: boolean,
+  measureTicks = STEPS_PER_MEASURE
 ): TabEvent[] => {
-  const sanitized = sanitizeEvents(events, STEPS_PER_MEASURE, true);
+  const sanitized = sanitizeEvents(events, measureTicks, true);
   if (!autoShift || !deletedEvent) {
     return sanitized;
   }
@@ -1174,31 +1330,31 @@ export const applySequentialDeleteShift = (
   const deletedOccupied = getEventOccupiedSteps(deletedEvent);
   const fromStep = deletedEvent.step + deletedOccupied;
   return sanitizeEvents(
-    shiftEventsFromStep(sanitized, fromStep, -deletedOccupied, STEPS_PER_MEASURE),
-    STEPS_PER_MEASURE,
+    shiftEventsFromStep(sanitized, fromStep, -deletedOccupied, measureTicks),
+    measureTicks,
     true
   );
 };
 
 export type CursorAdvanceResult = {
-  nextData: TabDataV3;
+  nextData: TabData;
   nextSelected: CellPosition;
   didAppendMeasure: boolean;
 };
 
-export const appendEmptyMeasure = (data: TabDataV3): TabDataV3 => ({
+export const appendEmptyMeasure = (data: TabData): TabData => ({
   ...data,
   measures: [...data.measures, { events: [] }],
 });
 
-export const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
+export const getMeasureEvents = (data: TabData, measureIndex: number): TabEvent[] =>
   data.measures.at(measureIndex)?.events ?? [];
 
 export const updateMeasureEvents = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number,
   nextEvents: TabEvent[]
-): TabDataV3 => {
+): TabData => {
   const safeIndex = Math.max(0, measureIndex);
   const measures = [...data.measures];
   while (measures.length <= safeIndex) {
@@ -1213,12 +1369,13 @@ export const updateMeasureEvents = (
  * when the cursor walks past the end of the last measure (unless playing).
  */
 export const getNextCursorPositionWithAutoAppend = (
-  data: TabDataV3,
+  data: TabData,
   selected: CellPosition,
   moveAmount: number,
   isPlaying: boolean,
   displayUnit: number
 ): CursorAdvanceResult => {
+  const measureTicks = getDataMeasureTicks(data);
   const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
   let nextData = data;
   let measureIndex = Math.max(0, Math.min(data.measures.length - 1, selected.measureIndex));
@@ -1228,7 +1385,7 @@ export const getNextCursorPositionWithAutoAppend = (
 
   while (remaining > 0) {
     const measureEvents = nextData.measures.at(measureIndex)?.events ?? [];
-    const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit);
+    const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit, measureTicks);
     const targetStep = stepIndex + remaining;
 
     if (targetStep < displaySteps) {
@@ -1285,7 +1442,7 @@ export const getNextCursorPositionWithAutoAppend = (
  * position, searching backwards across measures.
  */
 export const findPreviousNoteOnString = (
-  data: TabDataV3,
+  data: TabData,
   measureIndex: number,
   stepIndex: number,
   stringNumber: number,

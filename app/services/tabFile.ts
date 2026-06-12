@@ -1,7 +1,7 @@
-import { TabDataV3, normalizeToTabDataV3 } from "../tabModel";
+import { TabData, normalizeToTabData } from "../tabModel";
 
 /** Download the current tab data as a formatted JSON file. */
-export const downloadTabDataAsJson = (tabData: TabDataV3): void => {
+export const downloadTabDataAsJson = (tabData: TabData): void => {
   const blob = new Blob([JSON.stringify(tabData, null, 2)], {
     type: "application/json",
   });
@@ -15,12 +15,12 @@ export const downloadTabDataAsJson = (tabData: TabDataV3): void => {
 };
 
 /**
- * Parse and normalize an imported JSON file into TabDataV3.
+ * Parse and normalize an imported JSON file into TabData.
  * Returns null when the file is not valid tab data.
  * Throws when the file cannot be read or parsed at all.
  */
-export const readTabDataFile = async (file: File): Promise<TabDataV3 | null> => {
+export const readTabDataFile = async (file: File): Promise<TabData | null> => {
   const text = await file.text();
   const parsed = JSON.parse(text);
-  return normalizeToTabDataV3(parsed, true);
+  return normalizeToTabData(parsed, true);
 };

@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   OPEN_STRING_MIDI_BY_STRING,
-  STEPS_PER_MEASURE,
-  TabDataV3,
+  TICKS_PER_QUARTER,
+  TabData,
   TabEvent,
   findEventAtStep,
+  getDataMeasureTicks,
   getEventOccupiedSteps,
   getPlaybackDuration,
   toFrequency,
@@ -18,7 +19,7 @@ export type PlayCursor = {
 };
 
 type UsePlaybackOptions = {
-  tabData: TabDataV3;
+  tabData: TabData;
   selectedMeasureIndex: number;
   overflowingMeasureSet: Set<number>;
   onPlaybackEnd: () => void;
@@ -26,10 +27,10 @@ type UsePlaybackOptions = {
 
 const noteKey = (note: { string: number; fret: number }) => `${note.string}:${note.fret}`;
 
-const toLinearStep = (measureIndex: number, stepIndex: number) =>
-  measureIndex * STEPS_PER_MEASURE + stepIndex;
+const toLinearStep = (measureIndex: number, stepIndex: number, measureTicks: number) =>
+  measureIndex * measureTicks + stepIndex;
 
-const getSortedEventsWithPosition = (measures: TabDataV3["measures"]) =>
+const getSortedEventsWithPosition = (measures: TabData["measures"]) =>
   measures.flatMap((measure, measureIndex) =>
     measure.events.map((event) => ({ event, measureIndex }))
   ).sort((a, b) => {
@@ -38,9 +39,10 @@ const getSortedEventsWithPosition = (measures: TabDataV3["measures"]) =>
   });
 
 const getPlaybackNoteContext = (
-  measures: TabDataV3["measures"],
+  measures: TabData["measures"],
   measureIndex: number,
-  event: TabEvent
+  event: TabEvent,
+  measureTicks: number
 ) => {
   if ("rest" in event && event.rest) {
     return { mutedNotes: new Set<string>(), durationByNote: new Map<string, number>() };
@@ -101,8 +103,10 @@ const getPlaybackNoteContext = (
       nextSearchIndex += 1;
     }
 
-    const start = toLinearStep(measureIndex, event.step);
-    const end = toLinearStep(lastMeasureIndex, lastEvent.step) + getPlaybackDuration(lastEvent);
+    const start = toLinearStep(measureIndex, event.step, measureTicks);
+    const end =
+      toLinearStep(lastMeasureIndex, lastEvent.step, measureTicks) +
+      getPlaybackDuration(lastEvent);
     durationByNote.set(key, Math.max(getPlaybackDuration(event), end - start));
   });
 
@@ -167,7 +171,7 @@ export function usePlayback({
       await context.resume();
     }
 
-    const stepSec = (60 / tempo) / (STEPS_PER_MEASURE / 4);
+    const stepSec = 60 / tempo / TICKS_PER_QUARTER;
     const now = context.currentTime;
 
     event.notes.forEach((note) => {
@@ -209,11 +213,16 @@ export function usePlayback({
   }, []);
 
   const playNotePreview = useCallback(
-    (data: TabDataV3, measureIndex: number, stepIndex: number) => {
+    (data: TabData, measureIndex: number, stepIndex: number) => {
       const evts = data.measures.at(measureIndex)?.events ?? [];
       const evt = findEventAtStep(evts, stepIndex);
       if (evt) {
-        const context = getPlaybackNoteContext(data.measures, measureIndex, evt);
+        const context = getPlaybackNoteContext(
+          data.measures,
+          measureIndex,
+          evt,
+          getDataMeasureTicks(data)
+        );
         void playEvent(evt, data.tempo, context);
       }
     },
@@ -226,26 +235,32 @@ export function usePlayback({
       return;
     }
 
+    const measureTicks = getDataMeasureTicks(tabData);
     const isAtEnd = selectedMeasureIndex >= tabData.measures.length - 1;
     const startMeasureIndex = isAtEnd ? 0 : selectedMeasureIndex;
-    let linearIndex = startMeasureIndex * STEPS_PER_MEASURE;
-    const endLinearExclusive = tabData.measures.length * STEPS_PER_MEASURE;
+    let linearIndex = startMeasureIndex * measureTicks;
+    const endLinearExclusive = tabData.measures.length * measureTicks;
     const tempo = tabData.tempo;
-    const stepDurationMs = (60_000 / tempo) / (STEPS_PER_MEASURE / 4);
+    const stepDurationMs = 60_000 / tempo / TICKS_PER_QUARTER;
     const measuresForPlayback = tabData.measures.map((measure) => measure.events);
     const overflowingMeasuresForPlayback = new Set(overflowingMeasureSet);
 
     setIsPlaying(true);
     const initialCursor = {
-      measureIndex: Math.floor(linearIndex / STEPS_PER_MEASURE),
-      stepIndex: linearIndex % STEPS_PER_MEASURE,
+      measureIndex: Math.floor(linearIndex / measureTicks),
+      stepIndex: linearIndex % measureTicks,
     };
     setPlayCursor(initialCursor);
 
     const firstEvents = measuresForPlayback[initialCursor.measureIndex] ?? [];
     const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
     if (firstEvent) {
-      const context = getPlaybackNoteContext(tabData.measures, initialCursor.measureIndex, firstEvent);
+      const context = getPlaybackNoteContext(
+        tabData.measures,
+        initialCursor.measureIndex,
+        firstEvent,
+        measureTicks
+      );
       void playEvent(firstEvent, tempo, context);
     }
 
@@ -257,8 +272,8 @@ export function usePlayback({
         return;
       }
 
-      let cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
-      let cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
+      let cursorMeasureIndex = Math.floor(linearIndex / measureTicks);
+      let cursorStepIndex = linearIndex % measureTicks;
 
       if (overflowingMeasuresForPlayback.has(cursorMeasureIndex)) {
         const eventsForMeasure = measuresForPlayback[cursorMeasureIndex] ?? [];
@@ -266,15 +281,15 @@ export function usePlayback({
           .filter((event) => event.step <= cursorStepIndex)
           .reduce((sum, event) => sum + getEventOccupiedSteps(event), 0);
 
-        if (occupied >= STEPS_PER_MEASURE) {
-          linearIndex = (cursorMeasureIndex + 1) * STEPS_PER_MEASURE;
+        if (occupied >= measureTicks) {
+          linearIndex = (cursorMeasureIndex + 1) * measureTicks;
           if (linearIndex >= endLinearExclusive) {
             stopPlayback();
             onPlaybackEndRef.current();
             return;
           }
-          cursorMeasureIndex = Math.floor(linearIndex / STEPS_PER_MEASURE);
-          cursorStepIndex = linearIndex % STEPS_PER_MEASURE;
+          cursorMeasureIndex = Math.floor(linearIndex / measureTicks);
+          cursorStepIndex = linearIndex % measureTicks;
         }
       }
 
@@ -284,7 +299,12 @@ export function usePlayback({
       const eventsForMeasure = measuresForPlayback[cursor.measureIndex] ?? [];
       const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
       if (current) {
-        const context = getPlaybackNoteContext(tabData.measures, cursor.measureIndex, current);
+        const context = getPlaybackNoteContext(
+          tabData.measures,
+          cursor.measureIndex,
+          current,
+          measureTicks
+        );
         void playEvent(current, tempo, context);
       }
     }, stepDurationMs);

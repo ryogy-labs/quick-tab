@@ -28,7 +28,7 @@
 - `app/services/tabFile.ts`: TAB データの JSON export/import(ファイル境界)を担う
 
 ## Core Flows
-- エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
+- エディタは tick 単位（4 分音符 = 24 tick）の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する。拍子（4/4, 3/4, 2/4, 6/8）はドキュメント単位で選択でき、measure 容量はその拍子から導出される
 - 音価を先に選び、その後セルまたはフレットボード上の位置を指定してフレット番号を入力する。選択中イベントがある場合は、そのイベント長をツールバーへ同期する
 - Tie は選択中の note に付与/解除できる。空セル選択時に直前の同じ弦の note が存在する場合は、その note と同じフレットを Tie note として自動入力する。直前 note が存在しない場合は Tie 入力モードとして切り替わり、次に入力する note へ Tie を付与する。Tie は同一弦・同一フレットの直前 note から音を受けてつなぐ指定として扱い、譜面プレビューでは直前 note から Tie note へタイ曲線、TAB グリッドではフレット番号を括弧で囲んで表示する
 - デスクトップでは数字キー、モバイルではテンキーからフレット番号を入力する。2 桁入力は短いバッファ時間内で結合され、確定後にノートを配置する
@@ -46,30 +46,33 @@
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する
 
 ## Data Model
-- 永続化される主データは `localStorage` の `quick-tab:mvp:v3` に保存する
-- 旧データ `quick-tab:mvp:v2`, `quick-tab:mvp:v1` が存在する場合は、初回読込時に v3 モデルへ normalize して取り込む
-- TAB データの基本構造は `TabDataV3 = { version, tempo, timeSig, key?, stepsPerMeasure, tuning, measures }`
-- `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabDataV3` でバリデーションし、不正値は `"C"` にフォールバックする
+- 永続化される主データは `localStorage` の `quick-tab:mvp:v4` に保存する
+- 旧データ `quick-tab:mvp:v3`, `quick-tab:mvp:v2`, `quick-tab:mvp:v1` が存在する場合は、初回読込時に v4 モデルへ normalize して取り込む
+- TAB データの基本構造は `TabData (= TabDataV4) = { version: "v4", tempo, timeSig, key?, ticksPerQuarter, tuning, measures }`
+- 時間表現は tick が正本で、`ticksPerQuarter = 24`（コード上の `TICKS_PER_QUARTER` を正とする）。イベントの `step` / `len` は tick 値であり、v3 までの step と同一スケール（1 step = 1 tick）
+- `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出し、`stepsPerMeasure` フィールドは v4 では持たない。全拍子は measure 容量が 96 tick 以下になるよう選定されている
+- 拍子変更時は既存イベントを保持し、新容量を超える部分は overflow として扱う
+- `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabData` でバリデーションし、不正値は `"C"` にフォールバックする
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
 - Note event は `step`, `len`, `notes`, optional `dot` / `triplet` を持ち、`notes` は `{ string, fret, technique?, tie? }[]` の配列で複数弦同時入力を表現する。`technique` は `"slide" | "hammer" | "pulloff" | "bend" | "vibrato"` のいずれかで、未設定の場合は通常奏法を意味する。`tie` は直前の同一弦・同一フレット note から音を受ける指定で、note 単位に保存する
 - Rest event は `step`, `len`, `rest: true`, optional `dot` / `triplet` を持つ
-- `stepsPerMeasure` は 96 を基本とし、16 分音符 = 6 step として表現する。これにより dotted / triplet を整数 step で扱う
+- 16 分音符 = 6 tick として表現し、dotted / triplet を整数 tick で扱う
 - Measure clipboard と range clipboard はメモリ上の一時状態であり、リロード後には残らない
 - 選択セル、選択範囲、再生状態、再生カーソル、undo/redo 履歴、数字入力バッファ、ズーム率、モバイル判定は UI 状態であり永続化しない
-- Import 時や保存復元時は `normalizeToTabDataV3` と `sanitizeTabDataV3` を通し、不正値や競合イベントを補正した上で扱う
+- Import 時や保存復元時は `normalizeToTabData` と `sanitizeTabData` を通し、不正値や競合イベントを補正した上で扱う。異なる `ticksPerQuarter` を持つ v4 ファイルは読込時に 24 へリスケールする
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
 - `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
-- `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、`stepsPerMeasure` 超えはオーバーフローとして保持する
+- `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、measure 容量超えはオーバーフローとして保持する
 - Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して `tabModel.ts` で管理する。ノート削除時も後続を左詰めする。各関数は `autoShift: boolean` を引数に取り、page.tsx 側で渡す
 
 ## Future Time Representation
-- 現行 MVP の canonical model は `TabDataV3` の step-based 表現を維持する
-- 将来の外部譜面形式互換と複雑な音価対応を見据え、次期 canonical model では step-based 表現から tick-based 表現への移行を検討対象とする
-- 次期モデルの方向性は `ticksPerQuarter` と event 単位の `startTick` / `durationTick` を基本とし、`96 stepsPerMeasure` 固定を最終仕様とはみなさない
+- 現行 canonical model は `TabDataV4` の tick-based 表現（`ticksPerQuarter = 24`）。`96 stepsPerMeasure` 固定は撤廃済みで、measure 容量は拍子から導出する
+- イベントのフィールド名は `step` / `len` のまま tick 値として扱う。`startTick` / `durationTick` への改名は外部形式 adapter 整備時に再検討する
+- より細かい分解能（例: 480 TPQ）への引き上げは、複雑な tuplet 対応が必要になった時点で normalize のリスケール経路を使って行う
 - `dot` / `triplet` は将来的には長さ計算の正本ではなく、入力補助または表示補助メタデータとして扱う余地を残す
 - UI 上の 16 分単位グリッド、フリック入力、選択セルの挙動は直ちに廃止せず、内部 canonical model と表示スロットの変換層を介して段階的に移行する
 - 互換機能を追加する場合も、外部形式を直接 UI に接続せず、`canonical model <-> format adapter` の境界を維持する
-- `TabDataV3` から次期 tick-based モデルへの migration を前提にし、保存復元では旧バージョン読込時の normalize 経路を維持する
+- 保存復元では旧バージョン（v3/v2/v1）読込時の normalize 経路を維持する
 
 ## Future Native Migration
 - iPhone アプリ化を見据えるが、早期段階では Web 実装を先行し、入力体験と編集ルールの確立を優先する
@@ -96,7 +99,7 @@
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
-- `96 stepsPerMeasure` 固定は MVP としては合理的だが、将来の Guitar Pro / MusicXML 互換や複雑な tuplet 対応の最終解ではない
+- 拍子はドキュメント単位で、measure ごとの拍子変更には未対応。`TICKS_PER_QUARTER = 24` は単純な音価には十分だが、複雑な tuplet には分解能引き上げが必要になりうる
 - overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
 - 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある
 - 現在の措置は横スクロール1行レイアウト前提。将来の折り返し複数行レイアウト対応時は measure ごとの `displayColumns` 計算を導入する予定

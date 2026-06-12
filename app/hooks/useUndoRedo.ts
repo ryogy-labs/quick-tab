@@ -1,21 +1,21 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { TabDataV3 } from "../tabModel";
+import { TabData } from "../tabModel";
 
 const MAX_UNDO_STACK = 50;
 
 type UseUndoRedoOptions = {
-  tabData: TabDataV3;
-  onDataChange: (data: TabDataV3) => void;
+  tabData: TabData;
+  onDataChange: (data: TabData) => void;
 };
 
 export function useUndoRedo({ tabData, onDataChange }: UseUndoRedoOptions) {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  const undoStackRef = useRef<TabDataV3[]>([]);
-  const redoStackRef = useRef<TabDataV3[]>([]);
+  const undoStackRef = useRef<TabData[]>([]);
+  const redoStackRef = useRef<TabData[]>([]);
   // Always read the latest tabData inside callbacks without adding it to deps
   const tabDataRef = useRef(tabData);
   tabDataRef.current = tabData;
@@ -23,7 +23,7 @@ export function useUndoRedo({ tabData, onDataChange }: UseUndoRedoOptions) {
   const onDataChangeRef = useRef(onDataChange);
   onDataChangeRef.current = onDataChange;
 
-  const commit = useCallback((nextData: TabDataV3) => {
+  const commit = useCallback((nextData: TabData) => {
     undoStackRef.current = [...undoStackRef.current.slice(-(MAX_UNDO_STACK - 1)), tabDataRef.current];
     redoStackRef.current = [];
     setCanUndo(true);
