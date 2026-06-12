@@ -123,7 +123,7 @@ export function usePlayback({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playCursor, setPlayCursor] = useState<PlayCursor | null>(null);
 
-  const intervalRef = useRef<number | null>(null);
+  const timerRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   // Use a ref so the interval closure always reads the latest callback
   const onPlaybackEndRef = useRef(onPlaybackEnd);
@@ -133,9 +133,9 @@ export function usePlayback({
   }, [onPlaybackEnd]);
 
   const stopPlayback = useCallback(() => {
-    if (intervalRef.current !== null) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
     setIsPlaying(false);
     setPlayCursor(null);
@@ -143,8 +143,8 @@ export function usePlayback({
 
   useEffect(() => {
     return () => {
-      if (intervalRef.current !== null) {
-        window.clearInterval(intervalRef.current);
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
       }
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => undefined);
@@ -241,10 +241,9 @@ export function usePlayback({
     const measureCount = getTrackMeasures(tabData, 0).length;
     const isAtEnd = selectedMeasureIndex >= measureCount - 1;
     const startMeasureIndex = isAtEnd ? 0 : selectedMeasureIndex;
-    let linearIndex = startMeasureIndex * measureTicks;
-    const endLinearExclusive = measureCount * measureTicks;
     const tempo = tabData.tempo;
-    const stepDurationMs = 60_000 / tempo / TICKS_PER_QUARTER;
+    const msPerTick = 60_000 / tempo / TICKS_PER_QUARTER;
+    const sixteenth = TICKS_PER_QUARTER / 4;
     // All tracks play together (mixed); the cursor itself is track-agnostic.
     const playbackTracks = tabData.tracks.map((track) => ({
       measures: track.measures,
@@ -252,78 +251,118 @@ export function usePlayback({
     }));
     const overflowingMeasuresForPlayback = new Set(overflowingMeasureSet);
 
-    setIsPlaying(true);
-    const initialCursor = {
-      measureIndex: Math.floor(linearIndex / measureTicks),
-      stepIndex: linearIndex % measureTicks,
-    };
-    setPlayCursor(initialCursor);
-
-    playbackTracks.forEach((track) => {
-      const firstEvents = track.events[initialCursor.measureIndex] ?? [];
-      const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
-      if (firstEvent) {
-        const context = getPlaybackNoteContext(
-          track.measures,
-          initialCursor.measureIndex,
-          firstEvent,
-          measureTicks
-        );
-        void playEvent(firstEvent, tempo, context);
+    // Played duration of each measure. Overflow measures stop early once
+    // every track's cumulative content has filled the measure capacity
+    // (the remainder is skipped, matching the previous per-tick player).
+    const playedTicksByMeasure = Array.from({ length: measureCount }, (_, measureIndex) => {
+      if (!overflowingMeasuresForPlayback.has(measureIndex)) {
+        return measureTicks;
       }
-    });
-
-    intervalRef.current = window.setInterval(() => {
-      linearIndex += 1;
-      if (linearIndex >= endLinearExclusive) {
-        stopPlayback();
-        onPlaybackEndRef.current();
-        return;
-      }
-
-      let cursorMeasureIndex = Math.floor(linearIndex / measureTicks);
-      let cursorStepIndex = linearIndex % measureTicks;
-
-      if (overflowingMeasuresForPlayback.has(cursorMeasureIndex)) {
-        // Skip the overflow remainder only once every track's content has
-        // finished within this measure.
+      const startTicks = [
+        ...new Set(
+          playbackTracks.flatMap((track) =>
+            (track.events[measureIndex] ?? []).map((event) => event.step)
+          )
+        ),
+      ].sort((a, b) => a - b);
+      for (const tick of startTicks) {
         const occupied = Math.max(
           ...playbackTracks.map((track) =>
-            (track.events[cursorMeasureIndex] ?? [])
-              .filter((event) => event.step <= cursorStepIndex)
+            (track.events[measureIndex] ?? [])
+              .filter((event) => event.step <= tick)
               .reduce((sum, event) => sum + getEventOccupiedSteps(event), 0)
           )
         );
-
         if (occupied >= measureTicks) {
-          linearIndex = (cursorMeasureIndex + 1) * measureTicks;
-          if (linearIndex >= endLinearExclusive) {
-            stopPlayback();
-            onPlaybackEndRef.current();
-            return;
-          }
-          cursorMeasureIndex = Math.floor(linearIndex / measureTicks);
-          cursorStepIndex = linearIndex % measureTicks;
+          return tick;
         }
       }
+      return measureTicks;
+    });
 
-      const cursor = { measureIndex: cursorMeasureIndex, stepIndex: cursorStepIndex };
-      setPlayCursor(cursor);
+    // Cursor stops: every event start plus the 16th grid, so the playback
+    // highlight sweeps empty regions like the old per-tick cursor did.
+    type PlaybackStop = { timeMs: number; measureIndex: number; stepIndex: number };
+    const stops: PlaybackStop[] = [];
+    let elapsedTicks = 0;
+    for (let measureIndex = 0; measureIndex < measureCount; measureIndex += 1) {
+      const playedTicks = playedTicksByMeasure[measureIndex];
+      if (measureIndex >= startMeasureIndex) {
+        const stepSet = new Set<number>();
+        for (let step = 0; step < playedTicks; step += sixteenth) {
+          stepSet.add(step);
+        }
+        playbackTracks.forEach((track) => {
+          (track.events[measureIndex] ?? []).forEach((event) => {
+            if (event.step < playedTicks) {
+              stepSet.add(event.step);
+            }
+          });
+        });
+        [...stepSet]
+          .sort((a, b) => a - b)
+          .forEach((stepIndex) => {
+            stops.push({
+              timeMs: (elapsedTicks + stepIndex) * msPerTick,
+              measureIndex,
+              stepIndex,
+            });
+          });
+      }
+      if (measureIndex >= startMeasureIndex) {
+        elapsedTicks += playedTicks;
+      }
+    }
+    const totalMs = elapsedTicks * msPerTick;
 
+    if (stops.length === 0) {
+      return;
+    }
+
+    setIsPlaying(true);
+
+    const playStop = (stop: PlaybackStop) => {
+      setPlayCursor({ measureIndex: stop.measureIndex, stepIndex: stop.stepIndex });
       playbackTracks.forEach((track) => {
-        const eventsForMeasure = track.events[cursor.measureIndex] ?? [];
-        const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
-        if (current) {
+        const eventsForMeasure = track.events[stop.measureIndex] ?? [];
+        const current = findEventAtStep(eventsForMeasure, stop.stepIndex);
+        if (current && current.step === stop.stepIndex) {
           const context = getPlaybackNoteContext(
             track.measures,
-            cursor.measureIndex,
+            stop.measureIndex,
             current,
             measureTicks
           );
           void playEvent(current, tempo, context);
         }
       });
-    }, stepDurationMs);
+    };
+
+    // Drift-corrected timeout chain: each stop is scheduled against the
+    // wall-clock start time, so resolution stays event-sized regardless of
+    // TICKS_PER_QUARTER.
+    const startedAt = performance.now();
+    let nextStopIndex = 0;
+
+    const scheduleNext = () => {
+      if (nextStopIndex >= stops.length) {
+        timerRef.current = window.setTimeout(() => {
+          stopPlayback();
+          onPlaybackEndRef.current();
+        }, Math.max(0, startedAt + totalMs - performance.now()));
+        return;
+      }
+      const stop = stops[nextStopIndex];
+      nextStopIndex += 1;
+      timerRef.current = window.setTimeout(() => {
+        playStop(stop);
+        scheduleNext();
+      }, Math.max(0, startedAt + stop.timeMs - performance.now()));
+    };
+
+    playStop(stops[0]);
+    nextStopIndex = 1;
+    scheduleNext();
   }, [isPlaying, stopPlayback, tabData, selectedMeasureIndex, overflowingMeasureSet, playEvent]);
 
   return { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview };
