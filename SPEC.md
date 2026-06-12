@@ -47,7 +47,8 @@
 - Play を押すと現在 measure から step 単位で再生カーソルが進み、各 step 開始位置のイベントだけを発音する。overflow measure では remainder をスキップして次 measure へ進む。最後の measure まで到達すると停止し、選択は先頭へ戻る
 - Tie された note の再生では、直前の同一弦・同一フレット note の発音を Tie note まで延長し、Tie note は再アタックしない
 - Export は現在の TAB データを JSON または MusicXML としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
-- MusicXML export は score-partwise + 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)として書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める。MusicXML import は未対応
+- MusicXML export は score-partwise + 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)として書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める
+- MusicXML import は最初の part の voice 1 を読み込み、note/chord/rest、dot、triplet(3:2)、tie、string/fret(technical 欠落時は音高から弦割当)、divisions 差のリスケールに対応する。サポート外の拍子は 4/4 へフォールバックする。export の gap 充填により、ラウンドトリップでは空き領域が明示的な休符イベントになる
 - 譜面エリアは GP 同様の折り返しレイアウトで表示する。コンテナ幅とズーム率から利用可能幅を計算し、measure を行(システム)単位に貪欲詰めする。各システムは五線譜+TAB グリッドのペアで、小節番号を併記する。システムを跨ぐ Tie の弧は描画されない(TAB の括弧表記は維持)
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する。ズームを下げるほど1行に入る measure 数が増える
 
@@ -68,6 +69,7 @@
 - Import 時や保存復元時は `normalizeToTabData` と `sanitizeTabData` を通し、不正値や競合イベントを補正した上で扱う。異なる `ticksPerQuarter` を持つ v4 ファイルは読込時に 24 へリスケールする
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
 - `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
+- イベントの衝突判定(sanitize / canPlaceEvent)と blocked / owning 判定は、生の `len` ではなく実効占有ステップ数を基準とする。これにより連続する三連符などが正しく共存できる
 - `shiftEventsFromStep(events, fromStep, deltaSteps)` は `fromStep` 以降の全イベントを `deltaSteps` だけずらす。step < 0 になるイベントは削除し、measure 容量超えはオーバーフローとして保持する
 - Sequential モードのシフトは `getSequentialPlacementContext` / `applySequentialShift` / `applySequentialDeleteShift` の3関数に分離して `tabModel.ts` で管理する。ノート削除時も後続を左詰めする。各関数は `autoShift: boolean` を引数に取り、page.tsx 側で渡す
 

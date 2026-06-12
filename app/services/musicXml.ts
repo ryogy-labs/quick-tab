@@ -4,12 +4,15 @@ import {
   OPEN_STRING_MIDI_BY_STRING,
   STRINGS_COUNT,
   TICKS_PER_QUARTER,
+  TIME_SIGNATURES,
+  TUNING,
   TabData,
   TabEvent,
   TabNoteEventNote,
   getDataMeasureTicks,
   getEventOccupiedSteps,
   sanitizeEvents,
+  sanitizeTabData,
 } from "../tabModel";
 
 // MusicXML format adapter (export only). Keeps the canonical model <->
@@ -295,4 +298,227 @@ export const downloadTabDataAsMusicXml = (data: TabData): void => {
   a.download = "quick-tab.musicxml";
   a.click();
   URL.revokeObjectURL(url);
+};
+
+// --- Import (MusicXML -> canonical model) ---
+
+const STEP_SEMITONES: Record<string, number> = {
+  C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11,
+};
+
+const FIFTHS_TO_KEY: Record<number, KeySignature> = {
+  7: "C#", 6: "F#", 5: "B", 4: "E", 3: "A", 2: "D", 1: "G", 0: "C",
+  [-1]: "F", [-2]: "Bb", [-3]: "Eb", [-4]: "Ab", [-5]: "Db", [-6]: "Gb", [-7]: "Cb",
+};
+
+const text = (parent: Element, selector: string): string | null =>
+  parent.querySelector(selector)?.textContent ?? null;
+
+const intText = (parent: Element, selector: string): number | null => {
+  const raw = text(parent, selector);
+  if (raw === null) {
+    return null;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+};
+
+const pitchToMidi = (note: Element): number | null => {
+  const pitch = note.querySelector("pitch");
+  if (!pitch) {
+    return null;
+  }
+  const step = text(pitch, "step");
+  const octave = intText(pitch, "octave");
+  if (!step || octave === null || !(step in STEP_SEMITONES)) {
+    return null;
+  }
+  const alter = intText(pitch, "alter") ?? 0;
+  return (octave + 1) * 12 + STEP_SEMITONES[step] + alter;
+};
+
+/** Pick a playable string/fret for a midi note (highest string, lowest fret). */
+const midiToStringFret = (midi: number): { string: number; fret: number } | null => {
+  for (let stringNumber = 1; stringNumber <= STRINGS_COUNT; stringNumber += 1) {
+    const open = OPEN_STRING_MIDI_BY_STRING[stringNumber - 1];
+    const fret = midi - open;
+    if (fret >= 0 && fret <= 24) {
+      return { string: stringNumber, fret };
+    }
+  }
+  return null;
+};
+
+/**
+ * Parse MusicXML (score-partwise) into the canonical model. Reads the first
+ * part's voice-1 line: notes, chords, rests, dots, triplets, ties, and
+ * string/fret technical notations (falling back to a pitch-based string
+ * assignment). Returns null when no part or measures are found.
+ */
+export const musicXmlToTabData = (xml: string): TabData | null => {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) {
+    return null;
+  }
+  const part = doc.querySelector("part");
+  if (!part) {
+    return null;
+  }
+  const measureEls = [...part.querySelectorAll(":scope > measure")];
+  if (measureEls.length === 0) {
+    return null;
+  }
+
+  let divisions = TICKS_PER_QUARTER;
+  let timeSig: TabData["timeSig"] = "4/4";
+  let key: KeySignature = "C";
+  let tempo = 120;
+
+  const firstAttributes = part.querySelector("attributes");
+  if (firstAttributes) {
+    divisions = intText(firstAttributes, "divisions") ?? divisions;
+    const fifths = intText(firstAttributes, "key > fifths");
+    if (fifths !== null && fifths in FIFTHS_TO_KEY) {
+      key = FIFTHS_TO_KEY[fifths];
+    }
+    const beats = intText(firstAttributes, "time > beats");
+    const beatType = intText(firstAttributes, "time > beat-type");
+    if (beats !== null && beatType !== null) {
+      const candidate = `${beats}/${beatType}`;
+      if ((TIME_SIGNATURES as string[]).includes(candidate)) {
+        timeSig = candidate as TabData["timeSig"];
+      }
+    }
+  }
+  const soundTempo = part.querySelector("sound[tempo]")?.getAttribute("tempo");
+  if (soundTempo !== null && soundTempo !== undefined) {
+    const parsed = Number(soundTempo);
+    if (Number.isFinite(parsed)) {
+      tempo = Math.round(parsed);
+    }
+  }
+
+  const toTicks = (value: number): number =>
+    Math.round((value * TICKS_PER_QUARTER) / Math.max(1, divisions));
+
+  const measures = measureEls.map((measureEl) => {
+    type PendingEvent = {
+      step: number;
+      duration: number;
+      rest: boolean;
+      dot: boolean;
+      triplet: boolean;
+      notes: { string: number; fret: number; tie?: boolean }[];
+    };
+    const eventsByStep = new Map<number, PendingEvent>();
+    let cursor = 0;
+    let lastNoteStart = 0;
+
+    [...measureEl.children].forEach((child) => {
+      if (child.tagName === "backup") {
+        cursor -= toTicks(intText(child, "duration") ?? 0);
+        return;
+      }
+      if (child.tagName === "forward") {
+        cursor += toTicks(intText(child, "duration") ?? 0);
+        return;
+      }
+      if (child.tagName !== "note") {
+        return;
+      }
+
+      const note = child;
+      const isChord = note.querySelector("chord") !== null;
+      const duration = toTicks(intText(note, "duration") ?? 0);
+      const voice = text(note, "voice") ?? "1";
+      const start = isChord ? lastNoteStart : cursor;
+      if (!isChord) {
+        lastNoteStart = cursor;
+        cursor += duration;
+      }
+      if (voice !== "1" || duration <= 0 || start < 0) {
+        return;
+      }
+
+      const isRest = note.querySelector("rest") !== null;
+      const dot = note.querySelector("dot") !== null;
+      const timeMod = note.querySelector("time-modification");
+      const triplet =
+        timeMod !== null &&
+        intText(timeMod, "actual-notes") === 3 &&
+        intText(timeMod, "normal-notes") === 2;
+
+      let pending = eventsByStep.get(start);
+      if (!pending) {
+        pending = { step: start, duration, rest: isRest, dot, triplet, notes: [] };
+        eventsByStep.set(start, pending);
+      }
+      if (isRest) {
+        return;
+      }
+      pending.rest = false;
+
+      const technical = note.querySelector("notations > technical");
+      let stringNumber = technical ? intText(technical, "string") : null;
+      let fret = technical ? intText(technical, "fret") : null;
+      if (stringNumber === null || fret === null) {
+        const midi = pitchToMidi(note);
+        const mapped = midi !== null ? midiToStringFret(midi) : null;
+        if (!mapped) {
+          return;
+        }
+        stringNumber = mapped.string;
+        fret = mapped.fret;
+      }
+
+      const tieStop = note.querySelector('tie[type="stop"]') !== null;
+      pending.notes.push({
+        string: stringNumber,
+        fret,
+        ...(tieStop ? { tie: true } : {}),
+      });
+    });
+
+    const events: TabEvent[] = [...eventsByStep.values()]
+      .filter((pending) => pending.rest || pending.notes.length > 0)
+      .map((pending) => {
+        // Stored len is the unmodified base duration; dot/triplet metadata
+        // restores the effective occupied ticks.
+        const len = pending.dot
+          ? Math.round(pending.duration / 1.5)
+          : pending.triplet
+            ? Math.round(pending.duration * 1.5)
+            : pending.duration;
+        const base = {
+          step: pending.step,
+          len: Math.max(1, len),
+          ...(pending.dot ? { dot: true as const } : {}),
+          ...(pending.triplet ? { triplet: true as const } : {}),
+        };
+        return pending.rest
+          ? { ...base, rest: true as const }
+          : { ...base, notes: pending.notes };
+      });
+
+    return { events };
+  });
+
+  return sanitizeTabData(
+    {
+      version: "v4",
+      tempo: Math.min(300, Math.max(30, tempo)),
+      timeSig,
+      key,
+      ticksPerQuarter: TICKS_PER_QUARTER,
+      tuning: [...TUNING],
+      measures,
+    },
+    true
+  );
+};
+
+/** Read and parse an imported MusicXML file. Returns null when unparseable. */
+export const readTabDataMusicXmlFile = async (file: File): Promise<TabData | null> => {
+  const xml = await file.text();
+  return musicXmlToTabData(xml);
 };
