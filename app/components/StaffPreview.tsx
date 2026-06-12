@@ -764,8 +764,17 @@ export default function StaffPreview({
           const beamInfo = beamMembership.get(`${event.measureIndex}-${event.step}`);
           const stemUp = beamInfo ? beamInfo.stemUp : event.notes[0].y > STAFF_CENTER_Y;
           const stemX = stemUp ? event.notes[event.notes.length - 1].x + NOTE_RADIUS_X : event.notes[0].x - NOTE_RADIUS_X;
-          const stemBaseY = stemUp ? event.notes[event.notes.length - 1].y : event.notes[0].y;
-          const stemTipY = beamInfo ? beamInfo.stemTipY : (stemUp ? stemBaseY - STEM_HEIGHT : stemBaseY + STEM_HEIGHT);
+          // The stem runs through every notehead of the chord: from the
+          // outermost head on the base side to STEM_HEIGHT beyond the
+          // outermost head on the tip side.
+          const topNoteY = event.notes[0].y;
+          const bottomNoteY = event.notes[event.notes.length - 1].y;
+          const stemBaseY = stemUp ? bottomNoteY : topNoteY;
+          const stemTipY = beamInfo
+            ? beamInfo.stemTipY
+            : stemUp
+              ? topNoteY - STEM_HEIGHT
+              : bottomNoteY + STEM_HEIGHT;
           const noteFill = duration === "w" || duration === "h" ? "#ffffff" : isActive ? "#d35400" : "#111";
           const noteStroke = isActive ? "#d35400" : "#111";
           const needStem = duration !== "w";

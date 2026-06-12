@@ -226,6 +226,9 @@
 .trackBlock {
   position: relative;
   border-left: 3px solid transparent;
+  /* Bottom-string fret digits overhang their cell box; keep them clear of
+     the next stacked track. */
+  padding-bottom: 12px;
 }
 
 .trackBlockActive {
@@ -454,5 +457,9 @@
 
   .notationContent {
     padding: 4px;
+  }
+
+  .trackBlock {
+    padding-bottom: 18px;
   }
 }

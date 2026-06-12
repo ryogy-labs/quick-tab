@@ -50,7 +50,8 @@
 - Export は現在の TAB データを JSON または MusicXML としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
 - MusicXML export は score-partwise として、**トラックごとに1 part** を 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)で書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ(先頭 part のみ)・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める
 - MusicXML import は**全 part をトラックとして**読み込む(各 part の voice 1)。part-list の part-name をトラック名に採用し、note/chord/rest、dot、triplet(3:2)、tie、string/fret(technical 欠落時は音高から弦割当)、part ごとの divisions 差のリスケールに対応する。サポート外の拍子は 4/4 へフォールバックする。export の gap 充填により、ラウンドトリップでは空き領域が明示的な休符イベントになる
-- 譜面エリアは GP 同様の折り返しレイアウトで表示する。コンテナ幅とズーム率から利用可能幅を計算し、measure を行(システム)単位に貪欲詰めする。各システムは五線譜+TAB グリッドのペアで、小節番号を併記する。システムを跨ぐ Tie の弧は描画されない(TAB の括弧表記は維持)
+- 譜面エリアのレイアウトは `Wrap`(折り返し)と `Horizontal`(横スクロール1行)をメニューで切替できる。Wrap はコンテナ幅とズーム率から利用可能幅を計算し、measure を行(システム)単位に貪欲詰めする。Horizontal は全 measure を1システムに並べ、横スクロールで閲覧する(再生時は横方向に追従)。各システムは五線譜+TAB グリッドのペアで、小節番号を併記する。システムを跨ぐ Tie の弧は描画されない(TAB の括弧表記は維持)
+- 縦積みトラックブロックは下端に余白を持ち、最下弦のフレット数字が次のトラックに重ならない。和音のステムは構成音全体を貫通して描画する
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する。ズームを下げるほど1行に入る measure 数が増える
 
 ## Data Model
