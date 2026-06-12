@@ -142,7 +142,6 @@ export default function Home() {
     stepWidth,
     blockedStepsByMeasure,
     blockedStepSet,
-    overflowingMeasureSet,
     measureDisplayStepsByMeasure,
     measureVisibleStepsByMeasure,
     selectedMeasureDisplaySteps,
@@ -158,9 +157,8 @@ export default function Home() {
 
   const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
     tabData,
-    trackIndex: safeActiveTrackIndex,
     selectedMeasureIndex,
-    overflowingMeasureSet,
+    overflowingMeasureSet: anyTrackOverflowSet,
     onPlaybackEnd: useCallback(() => {
       setSelected((prev) => ({ ...prev, measureIndex: 0, stepIndex: 0 }));
     }, []),

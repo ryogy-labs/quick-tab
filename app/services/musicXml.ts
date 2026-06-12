@@ -11,7 +11,6 @@ import {
   TabNoteEventNote,
   getDataMeasureTicks,
   getEventOccupiedSteps,
-  getTrackMeasures,
   sanitizeEvents,
   sanitizeTabData,
 } from "../tabModel";
@@ -45,6 +44,13 @@ const FLAT_PITCHES: ReadonlyArray<{ step: string; alter: number }> = [
   { step: "G", alter: -1 }, { step: "G", alter: 0 }, { step: "A", alter: -1 },
   { step: "A", alter: 0 }, { step: "B", alter: -1 }, { step: "B", alter: 0 },
 ];
+
+const xmlEscape = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 
 const keyFifths = (key: KeySignature): number => {
   const { sharps, flats } = KEY_ACCIDENTAL_COUNTS[key];
@@ -191,11 +197,9 @@ export const tabDataToMusicXml = (data: TabData): string => {
   const [beats, beatType] = data.timeSig.split("/").map(Number);
   const key = data.key ?? "C";
   const useFlats = KEY_ACCIDENTAL_COUNTS[key].flats > 0;
-  // Single-part export for now; one part per track lands with the
-  // multitrack playback/export pass.
-  const exportMeasures = getTrackMeasures(data, 0);
 
-  const measuresXml = exportMeasures
+  const buildPartMeasuresXml = (exportMeasures: { events: TabEvent[] }[], isFirstPart: boolean) =>
+    exportMeasures
     .map((measure, measureIndex) => {
       const events = sanitizeEvents(measure.events, measureTicks, true)
         .filter((event) => event.step < measureTicks)
@@ -270,7 +274,11 @@ export const tabDataToMusicXml = (data: TabData): string => {
                 [...OPEN_STRING_MIDI_BY_STRING]
               )}</staff-details>`,
               "</attributes>",
-              `<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${data.tempo}</per-minute></metronome></direction-type><sound tempo="${data.tempo}"/></direction>`,
+              ...(isFirstPart
+                ? [
+                    `<direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${data.tempo}</per-minute></metronome></direction-type><sound tempo="${data.tempo}"/></direction>`,
+                  ]
+                : []),
             ].join("")
           : "";
 
@@ -278,16 +286,27 @@ export const tabDataToMusicXml = (data: TabData): string => {
     })
     .join("");
 
+  const partListXml = data.tracks
+    .map(
+      (track, index) =>
+        `<score-part id="P${index + 1}"><part-name>${xmlEscape(track.name)}</part-name></score-part>`
+    )
+    .join("");
+  const partsXml = data.tracks
+    .map(
+      (track, index) =>
+        `<part id="P${index + 1}">${buildPartMeasuresXml(track.measures, index === 0)}</part>`
+    )
+    .join("\n");
+
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">',
     '<score-partwise version="4.0">',
     "<part-list>",
-    '<score-part id="P1"><part-name>Guitar</part-name></score-part>',
+    partListXml,
     "</part-list>",
-    '<part id="P1">',
-    measuresXml,
-    "</part>",
+    partsXml,
     "</score-partwise>",
   ].join("\n");
 };
@@ -359,53 +378,20 @@ const midiToStringFret = (midi: number): { string: number; fret: number } | null
  * string/fret technical notations (falling back to a pitch-based string
  * assignment). Returns null when no part or measures are found.
  */
-export const musicXmlToTabData = (xml: string): TabData | null => {
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  if (doc.querySelector("parsererror")) {
-    return null;
-  }
-  const part = doc.querySelector("part");
-  if (!part) {
-    return null;
-  }
+/** Parse one <part> body into measures, using that part's own divisions. */
+const parsePartMeasures = (part: Element) => {
   const measureEls = [...part.querySelectorAll(":scope > measure")];
   if (measureEls.length === 0) {
     return null;
   }
 
-  let divisions = TICKS_PER_QUARTER;
-  let timeSig: TabData["timeSig"] = "4/4";
-  let key: KeySignature = "C";
-  let tempo = 120;
-
-  const firstAttributes = part.querySelector("attributes");
-  if (firstAttributes) {
-    divisions = intText(firstAttributes, "divisions") ?? divisions;
-    const fifths = intText(firstAttributes, "key > fifths");
-    if (fifths !== null && fifths in FIFTHS_TO_KEY) {
-      key = FIFTHS_TO_KEY[fifths];
-    }
-    const beats = intText(firstAttributes, "time > beats");
-    const beatType = intText(firstAttributes, "time > beat-type");
-    if (beats !== null && beatType !== null) {
-      const candidate = `${beats}/${beatType}`;
-      if ((TIME_SIGNATURES as string[]).includes(candidate)) {
-        timeSig = candidate as TabData["timeSig"];
-      }
-    }
-  }
-  const soundTempo = part.querySelector("sound[tempo]")?.getAttribute("tempo");
-  if (soundTempo !== null && soundTempo !== undefined) {
-    const parsed = Number(soundTempo);
-    if (Number.isFinite(parsed)) {
-      tempo = Math.round(parsed);
-    }
-  }
+  const divisions =
+    intText(part.querySelector("attributes") ?? part, "divisions") ?? TICKS_PER_QUARTER;
 
   const toTicks = (value: number): number =>
     Math.round((value * TICKS_PER_QUARTER) / Math.max(1, divisions));
 
-  const measures = measureEls.map((measureEl) => {
+  return measureEls.map((measureEl) => {
     type PendingEvent = {
       step: number;
       duration: number;
@@ -506,6 +492,79 @@ export const musicXmlToTabData = (xml: string): TabData | null => {
 
     return { events };
   });
+};
+
+/**
+ * Parse MusicXML (score-partwise) into the canonical model. Every part
+ * becomes a track (voice 1 of each part): notes, chords, rests, dots,
+ * triplets, ties, and string/fret technical notations (falling back to a
+ * pitch-based string assignment). Returns null when no parts parse.
+ */
+export const musicXmlToTabData = (xml: string): TabData | null => {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  if (doc.querySelector("parsererror")) {
+    return null;
+  }
+  const parts = [...doc.querySelectorAll("score-partwise > part")];
+  if (parts.length === 0) {
+    return null;
+  }
+
+  // Part names come from the part-list, keyed by id.
+  const nameById = new Map<string, string>();
+  doc.querySelectorAll("part-list score-part").forEach((scorePart) => {
+    const id = scorePart.getAttribute("id");
+    const name = scorePart.querySelector("part-name")?.textContent;
+    if (id && name) {
+      nameById.set(id, name);
+    }
+  });
+
+  // Document meta (key/time/tempo) comes from the first part.
+  let timeSig: TabData["timeSig"] = "4/4";
+  let key: KeySignature = "C";
+  let tempo = 120;
+  const firstAttributes = parts[0].querySelector("attributes");
+  if (firstAttributes) {
+    const fifths = intText(firstAttributes, "key > fifths");
+    if (fifths !== null && fifths in FIFTHS_TO_KEY) {
+      key = FIFTHS_TO_KEY[fifths];
+    }
+    const beats = intText(firstAttributes, "time > beats");
+    const beatType = intText(firstAttributes, "time > beat-type");
+    if (beats !== null && beatType !== null) {
+      const candidate = `${beats}/${beatType}`;
+      if ((TIME_SIGNATURES as string[]).includes(candidate)) {
+        timeSig = candidate as TabData["timeSig"];
+      }
+    }
+  }
+  const soundTempo = doc.querySelector("part sound[tempo]")?.getAttribute("tempo");
+  if (soundTempo !== null && soundTempo !== undefined) {
+    const parsed = Number(soundTempo);
+    if (Number.isFinite(parsed)) {
+      tempo = Math.round(parsed);
+    }
+  }
+
+  const tracks = parts
+    .map((part, index) => {
+      const measures = parsePartMeasures(part);
+      if (!measures) {
+        return null;
+      }
+      const id = part.getAttribute("id") ?? "";
+      return {
+        name: nameById.get(id) ?? `Track ${index + 1}`,
+        tuning: [...TUNING],
+        measures,
+      };
+    })
+    .filter((track): track is NonNullable<typeof track> => track !== null);
+
+  if (tracks.length === 0) {
+    return null;
+  }
 
   return sanitizeTabData(
     {
@@ -514,7 +573,7 @@ export const musicXmlToTabData = (xml: string): TabData | null => {
       timeSig,
       key,
       ticksPerQuarter: TICKS_PER_QUARTER,
-      tracks: [{ name: "Guitar", tuning: [...TUNING], measures }],
+      tracks,
     },
     true
   );
