@@ -11,7 +11,7 @@ import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import { useTabStorage } from "./hooks/useTabStorage";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { useNotationLayout } from "./hooks/useNotationLayout";
+import { computeSystems, useNotationLayout } from "./hooks/useNotationLayout";
 import { useRangeSelection } from "./hooks/useRangeSelection";
 import { useDigitInput } from "./hooks/useDigitInput";
 import { useTabEditing } from "./hooks/useTabEditing";
@@ -44,7 +44,6 @@ const TAB_LABEL_WIDTH = 92;
 const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
 const TAB_SLOT_WIDTH_MOBILE = 34;
-const MEASURE_SCROLL_PADDING = 24;
 
 const toGlobalStep = (cursor: PlayCursor, measureTicks: number): number =>
   cursor.measureIndex * measureTicks + cursor.stepIndex;
@@ -82,9 +81,22 @@ export default function Home() {
   });
 
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
-  const staffSectionRef = useRef<HTMLDivElement | null>(null);
-  const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
+  const systemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const prevPlaybackSystemIndexRef = useRef<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
+
+  const [notationContainerWidth, setNotationContainerWidth] = useState(0);
+  useEffect(() => {
+    const el = timelineScrollRef.current;
+    if (!el) {
+      return;
+    }
+    const update = () => setNotationContainerWidth(el.clientWidth);
+    update();
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(el);
+    return () => resizeObserver.disconnect();
+  }, []);
 
   const layout = useNotationLayout({
     tabData,
@@ -112,12 +124,10 @@ export default function Home() {
     overflowingMeasureSet,
     measureDisplayStepsByMeasure,
     measureVisibleStepsByMeasure,
+    measureDisplaySlotsByMeasure,
     selectedMeasureDisplaySteps,
     measureGrids,
-    displayCells,
     measuresEvents,
-    measureStartXs,
-    timelineWidth,
   } = layout;
 
   const selectedNoteTieActive = selectedNote?.tie === true;
@@ -324,14 +334,9 @@ export default function Home() {
     setNotationScale,
     fretboardScale,
     handleFretboardScaleChange,
-    staffBarMetrics,
   } = useNotationZoom({
     isMobile,
     timelineScrollRef,
-    staffSectionRef,
-    totalMeasures,
-    stepWidth,
-    displayUnit,
   });
 
   useEffect(() => {
@@ -436,38 +441,60 @@ export default function Home() {
     return isStepInRange(selectedRange, measureIndex, owningStep);
   };
 
-  const totalDisplaySlots = displayCells.length;
   const currentGlobalStep = playCursor ? toGlobalStep(playCursor, measureTicks) : null;
   const currentPlaybackMeasureIndex =
     currentGlobalStep === null ? null : Math.floor(currentGlobalStep / measureTicks);
   const notationStyle = {
     "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
-    "--slot-count": String(totalDisplaySlots),
     "--notation-scale": String(notationScale),
   } as CSSProperties;
 
+  // Wrapped multi-system layout: pack measures into rows that fit the
+  // container. The content uses CSS zoom, so the layout budget is the
+  // container width divided by the zoom scale, minus padding/border.
+  const systems = useMemo(() => {
+    const padding = 18;
+    const fallbackWidth = tabLabelWidth + stepWidth * 16 * 2;
+    const availableWidth =
+      notationContainerWidth > 0
+        ? notationContainerWidth / notationScale - padding
+        : fallbackWidth;
+    return computeSystems(
+      measureDisplaySlotsByMeasure,
+      stepWidth,
+      tabLabelWidth,
+      availableWidth
+    );
+  }, [
+    measureDisplaySlotsByMeasure,
+    notationContainerWidth,
+    notationScale,
+    stepWidth,
+    tabLabelWidth,
+  ]);
+  const systemIndexByMeasure = useMemo(() => {
+    const map = new Map<number, number>();
+    systems.forEach((system, systemIndex) => {
+      system.measureIndices.forEach((measureIndex) => map.set(measureIndex, systemIndex));
+    });
+    return map;
+  }, [systems]);
+
   useEffect(() => {
     if (!isPlaying || currentPlaybackMeasureIndex === null) {
-      prevPlaybackMeasureIndexRef.current = null;
+      prevPlaybackSystemIndexRef.current = null;
       return;
     }
 
-    if (prevPlaybackMeasureIndexRef.current === currentPlaybackMeasureIndex) {
+    const systemIndex = systemIndexByMeasure.get(currentPlaybackMeasureIndex) ?? null;
+    if (systemIndex === null || prevPlaybackSystemIndexRef.current === systemIndex) {
       return;
     }
 
-    const container = timelineScrollRef.current;
-    if (!container) {
-      prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
-      return;
-    }
-
-    const measureStartX = measureStartXs[currentPlaybackMeasureIndex] ?? measureStartXs[0] ?? 0;
-    const nextLeft = Math.max(0, measureStartX - MEASURE_SCROLL_PADDING);
-    container.scrollTo({ left: nextLeft, behavior: "auto" });
-    prevPlaybackMeasureIndexRef.current = currentPlaybackMeasureIndex;
-  }, [currentPlaybackMeasureIndex, isPlaying, measureStartXs]);
+    systemRefs.current[systemIndex]?.scrollIntoView({ block: "nearest", behavior: "auto" });
+    prevPlaybackSystemIndexRef.current = systemIndex;
+  }, [currentPlaybackMeasureIndex, isPlaying, systemIndexByMeasure]);
 
   useEffect(() => {
     setSelected((prev) => {
@@ -720,146 +747,176 @@ export default function Home() {
           </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
-              <div ref={staffSectionRef} className={styles.staffSection}>
-                <div className={styles.measureBarOverlay} aria-hidden="true">
-                  {measureStartXs.map((left, i) => {
-                    const isEnd = i === totalMeasures;
-                    const boundaryMeasureIndex = isEnd ? totalMeasures - 1 : i;
-                    return (
-                      <div
-                        key={`staff-barline-${i}`}
-                        className={`${styles.measureBarLine} ${
-                          overflowingMeasureSet.has(boundaryMeasureIndex) ? styles.measureOverflow : ""
-                        } ${isEnd ? styles.measureBarLineEnd : ""}`}
-                        style={{
-                          left: `${left}px`,
-                          top: staffBarMetrics ? `${staffBarMetrics.top}px` : "0",
-                          height: staffBarMetrics ? `${staffBarMetrics.height}px` : "0",
-                        }}
+              {systems.map((system, systemIndex) => {
+                const systemMeasuresEvents = system.measureIndices.map(
+                  (measureIndex) => measuresEvents[measureIndex] ?? []
+                );
+                const systemDisplaySlots = system.measureIndices.map(
+                  (measureIndex) => measureDisplaySlotsByMeasure[measureIndex] ?? 0
+                );
+                const systemOverflowing = new Set(
+                  system.measureIndices
+                    .map((measureIndex, localIndex) =>
+                      overflowingMeasureSet.has(measureIndex) ? localIndex : -1
+                    )
+                    .filter((localIndex) => localIndex >= 0)
+                );
+                const cursorLocalMeasure =
+                  playCursor !== null
+                    ? system.measureIndices.indexOf(playCursor.measureIndex)
+                    : -1;
+                const systemCursor =
+                  cursorLocalMeasure >= 0 && playCursor !== null
+                    ? { measureIndex: cursorLocalMeasure, stepIndex: playCursor.stepIndex }
+                    : null;
+                const rowTemplate = `${tabLabelWidth}px repeat(${system.slotCount}, ${stepWidth}px)`;
+                return (
+                  <div
+                    key={`system-${systemIndex}`}
+                    className={styles.system}
+                    ref={(el) => {
+                      systemRefs.current[systemIndex] = el;
+                    }}
+                  >
+                    <div className={styles.staffSection}>
+                      <StaffPreview
+                        measuresEvents={systemMeasuresEvents}
+                        currentCursor={systemCursor}
+                        stepWidth={stepWidth}
+                        stepUnit={displayUnit}
+                        measureDisplaySlots={systemDisplaySlots}
+                        measureStartXs={system.startXs}
+                        timelineWidth={system.width}
+                        overflowingMeasures={systemOverflowing}
+                        showBarLines={true}
+                        keySignature={tabData.key}
+                        firstMeasureNumber={(system.measureIndices[0] ?? 0) + 1}
                       />
-                    );
-                  })}
-                </div>
-                <StaffPreview
-                  measuresEvents={measuresEvents}
-                  currentCursor={playCursor}
-                  stepWidth={stepWidth}
-                  stepUnit={displayUnit}
-                  measureDisplaySlots={layout.measureDisplaySlotsByMeasure}
-                  measureStartXs={measureStartXs}
-                  timelineWidth={timelineWidth}
-                  overflowingMeasures={overflowingMeasureSet}
-                  showBarLines={false}
-                  keySignature={tabData.key}
-                />
-              </div>
-              <div className={styles.gridSection}>
-                <div className={styles.measureBarOverlay} aria-hidden="true">
-                  {measureStartXs.map((left, i) => {
-                    const isEnd = i === totalMeasures;
-                    const boundaryMeasureIndex = isEnd ? totalMeasures - 1 : i;
-                    return (
-                      <div
-                        key={`grid-barline-${i}`}
-                        className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${
-                          overflowingMeasureSet.has(boundaryMeasureIndex) ? styles.measureOverflow : ""
-                        } ${isEnd ? styles.measureBarLineEnd : ""}`}
-                        style={{ left: `${left}px` }}
-                      />
-                    );
-                  })}
-                </div>
-                <div className={styles.grid} ref={gridRef}>
-                {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
-                  <div key={`row-${rowIndex}`} className={styles.row}>
-                    <div className={styles.stringLabel}>
-                      {TUNING[rowIndex]}
                     </div>
-                    {displayCells.map(({ measureIndex, stepIndex }) => {
-                      const measureEvents = getMeasureEvents(tabData, measureIndex);
-                      const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
-                      const cellEvent = findEventAtStep(measureEvents, stepIndex);
-                      const cellNote =
-                        cellEvent && !("rest" in cellEvent && cellEvent.rest)
-                          ? cellEvent.notes.find((note) => note.string === rowIndex + 1)
-                          : undefined;
-                      const hasTie = cellNote?.tie === true;
-                      const techniqueGlyph = cellNote?.technique
-                        ? TECHNIQUE_GLYPHS[cellNote.technique]
-                        : "";
-                      const displayValue =
-                        cell?.fret !== null && cell?.fret !== undefined
-                          ? `${hasTie ? `(${cell.fret})` : String(cell.fret)}${techniqueGlyph}`
-                          : "";
-                      const hasDisplayValue = displayValue !== "";
-                      const isSelected =
-                        selected.measureIndex === measureIndex &&
-                        selected.rowIndex === rowIndex &&
-                        selected.stepIndex === stepIndex;
-                      const isCurrentStep =
-                        playCursor?.measureIndex === measureIndex &&
-                        playCursor?.stepIndex === stepIndex;
-                      const isStepHighlighted =
-                        selectedRange !== null
-                          ? isRangeHighlightedStep(measureIndex, stepIndex)
-                          : isDurationPreviewStep(measureIndex, stepIndex);
-                      const isBlocked = blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
-                      const isOverflowingMeasure = overflowingMeasureSet.has(measureIndex);
-                      return (
-                        <button
-                          key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
-                          type="button"
-                          data-measure-index={measureIndex}
-                          data-step-index={stepIndex}
-                          className={`${styles.cell} ${
-                            isSelected ? styles.selected : ""
-                          } ${isStepHighlighted ? styles.durationPreview : ""} ${
-                            isDraggingRange ? styles.dragSelecting : ""
-                          } ${isCurrentStep ? styles.playing : ""} ${
-                            isBlocked ? styles.blocked : ""
-                          } ${isOverflowingMeasure ? styles.measureOverflow : ""
-                          }`.trim()}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            handleRangeMouseDown(measureIndex, stepIndex);
-                          }}
-                          onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
-                          onTouchStart={(event) => {
-                            event.preventDefault();
-                            handleRangeMouseDown(measureIndex, stepIndex);
-                          }}
-                          onClick={() => {
-                            if (didDragRangeRef.current) {
-                              didDragRangeRef.current = false;
-                              return;
-                            }
-                            if (isBlocked) {
-                              const owningStep = findOwningEventStep(
-                                measureEvents,
-                                stepIndex,
-                                measureDisplayStepsByMeasure[measureIndex] ?? measureTicks
-                              );
-                              setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
-                              return;
-                            }
-                            setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
-                          }}
-                        >
-                          <span
-                            className={`${styles.cellValue} ${
-                              hasDisplayValue ? styles.cellValueFilled : ""
-                            } ${hasTie ? styles.cellValueTied : ""
-                            }`.trim()}
+                    <div className={styles.gridSection}>
+                      <div className={styles.measureBarOverlay} aria-hidden="true">
+                        {system.startXs.map((left, i) => {
+                          const isEnd = i === system.measureIndices.length;
+                          const boundaryMeasureIndex = isEnd
+                            ? system.measureIndices[system.measureIndices.length - 1]
+                            : system.measureIndices[i];
+                          return (
+                            <div
+                              key={`grid-barline-${systemIndex}-${i}`}
+                              className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${
+                                overflowingMeasureSet.has(boundaryMeasureIndex ?? -1)
+                                  ? styles.measureOverflow
+                                  : ""
+                              } ${isEnd ? styles.measureBarLineEnd : ""}`}
+                              style={{ left: `${left}px` }}
+                            />
+                          );
+                        })}
+                      </div>
+                      <div
+                        className={styles.grid}
+                        ref={systemIndex === 0 ? gridRef : undefined}
+                      >
+                        {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
+                          <div
+                            key={`row-${systemIndex}-${rowIndex}`}
+                            className={styles.row}
+                            style={{ gridTemplateColumns: rowTemplate }}
                           >
-                            {displayValue}
-                          </span>
-                        </button>
-                      );
-                    })}
+                            <div className={styles.stringLabel}>
+                              {TUNING[rowIndex]}
+                            </div>
+                            {system.measureIndices.flatMap((measureIndex) =>
+                              (measureVisibleStepsByMeasure[measureIndex] ?? []).map((stepIndex) => {
+                                const measureEvents = getMeasureEvents(tabData, measureIndex);
+                                const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
+                                const cellEvent = findEventAtStep(measureEvents, stepIndex);
+                                const cellNote =
+                                  cellEvent && !("rest" in cellEvent && cellEvent.rest)
+                                    ? cellEvent.notes.find((note) => note.string === rowIndex + 1)
+                                    : undefined;
+                                const hasTie = cellNote?.tie === true;
+                                const techniqueGlyph = cellNote?.technique
+                                  ? TECHNIQUE_GLYPHS[cellNote.technique]
+                                  : "";
+                                const displayValue =
+                                  cell?.fret !== null && cell?.fret !== undefined
+                                    ? `${hasTie ? `(${cell.fret})` : String(cell.fret)}${techniqueGlyph}`
+                                    : "";
+                                const hasDisplayValue = displayValue !== "";
+                                const isSelected =
+                                  selected.measureIndex === measureIndex &&
+                                  selected.rowIndex === rowIndex &&
+                                  selected.stepIndex === stepIndex;
+                                const isCurrentStep =
+                                  playCursor?.measureIndex === measureIndex &&
+                                  playCursor?.stepIndex === stepIndex;
+                                const isStepHighlighted =
+                                  selectedRange !== null
+                                    ? isRangeHighlightedStep(measureIndex, stepIndex)
+                                    : isDurationPreviewStep(measureIndex, stepIndex);
+                                const isBlocked =
+                                  blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
+                                const isOverflowingMeasure = overflowingMeasureSet.has(measureIndex);
+                                return (
+                                  <button
+                                    key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
+                                    type="button"
+                                    data-measure-index={measureIndex}
+                                    data-step-index={stepIndex}
+                                    className={`${styles.cell} ${
+                                      isSelected ? styles.selected : ""
+                                    } ${isStepHighlighted ? styles.durationPreview : ""} ${
+                                      isDraggingRange ? styles.dragSelecting : ""
+                                    } ${isCurrentStep ? styles.playing : ""} ${
+                                      isBlocked ? styles.blocked : ""
+                                    } ${isOverflowingMeasure ? styles.measureOverflow : ""
+                                    }`.trim()}
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      handleRangeMouseDown(measureIndex, stepIndex);
+                                    }}
+                                    onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
+                                    onTouchStart={(event) => {
+                                      event.preventDefault();
+                                      handleRangeMouseDown(measureIndex, stepIndex);
+                                    }}
+                                    onClick={() => {
+                                      if (didDragRangeRef.current) {
+                                        didDragRangeRef.current = false;
+                                        return;
+                                      }
+                                      if (isBlocked) {
+                                        const owningStep = findOwningEventStep(
+                                          measureEvents,
+                                          stepIndex,
+                                          measureDisplayStepsByMeasure[measureIndex] ?? measureTicks
+                                        );
+                                        setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
+                                        return;
+                                      }
+                                      setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
+                                    }}
+                                  >
+                                    <span
+                                      className={`${styles.cellValue} ${
+                                        hasDisplayValue ? styles.cellValueFilled : ""
+                                      } ${hasTie ? styles.cellValueTied : ""
+                                      }`.trim()}
+                                    >
+                                      {displayValue}
+                                    </span>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                ))}
-                </div>
-              </div>
+                );
+              })}
             </div>
           </div>
         </div>

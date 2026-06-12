@@ -16,6 +16,8 @@ type StaffPreviewProps = {
   showClef?: boolean;
   showBarLines?: boolean;
   keySignature?: KeySignature;
+  /** Global number of the first measure, for wrapped multi-system layout. */
+  firstMeasureNumber?: number;
 };
 
 type PitchToken = {
@@ -474,6 +476,7 @@ export default function StaffPreview({
   showClef = true,
   showBarLines = true,
   keySignature = "C",
+  firstMeasureNumber = 1,
 }: StaffPreviewProps) {
   const measureCount = Math.max(1, measuresEvents.length);
   const width = timelineWidth;
@@ -568,7 +571,7 @@ export default function StaffPreview({
 
   return (
     <section className={styles.staffBlock}>
-      <svg className={styles.canvas} width="100%" viewBox={`0 0 ${width} ${viewBoxHeight}`} preserveAspectRatio="xMinYMin meet">
+      <svg className={styles.canvas} width={width} height={viewBoxHeight} viewBox={`0 0 ${width} ${viewBoxHeight}`} preserveAspectRatio="xMinYMin meet">
         <rect x={0} y={0} width={width} height={viewBoxHeight} fill="transparent" />
 
         {activeSlot !== null &&
@@ -608,7 +611,7 @@ export default function StaffPreview({
             fontSize={9}
             fill="#9aa3b2"
           >
-            {i + 1}
+            {firstMeasureNumber + i}
           </text>
         ))}
 

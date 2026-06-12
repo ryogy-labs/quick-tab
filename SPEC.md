@@ -47,7 +47,8 @@
 - Tie された note の再生では、直前の同一弦・同一フレット note の発音を Tie note まで延長し、Tie note は再アタックしない
 - Export は現在の TAB データを JSON または MusicXML としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
 - MusicXML export は score-partwise + 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)として書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める。MusicXML import は未対応
-- 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する
+- 譜面エリアは GP 同様の折り返しレイアウトで表示する。コンテナ幅とズーム率から利用可能幅を計算し、measure を行(システム)単位に貪欲詰めする。各システムは五線譜+TAB グリッドのペアで、小節番号を併記する。システムを跨ぐ Tie の弧は描画されない(TAB の括弧表記は維持)
+- 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する。ズームを下げるほど1行に入る measure 数が増える
 
 ## Data Model
 - 永続化される主データは `localStorage` の `quick-tab:mvp:v4` に保存する
@@ -106,4 +107,4 @@
 - 拍子はドキュメント単位で、measure ごとの拍子変更には未対応。`TICKS_PER_QUARTER = 24` は単純な音価には十分だが、複雑な tuplet には分解能引き上げが必要になりうる
 - overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
 - 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある
-- 現在の措置は横スクロール1行レイアウト前提。将来の折り返し複数行レイアウト対応時は measure ごとの `displayColumns` 計算を導入する予定
+- 折り返しレイアウトはシステム単位で StaffPreview を分割描画するため、システム境界を跨ぐ Tie の弧は譜面上に表示されない
