@@ -15,6 +15,7 @@
 - `app/components/FretboardInput.tsx`: フレットボード UI とフリック入力を扱う
 - `app/components/MobileNumpad.tsx`: モバイル向け数字入力と休符入力を扱う
 - `app/components/TechniquePalette.tsx`: 選択 note への technique 付与/解除用ポップオーバーを扱う
+- `app/components/TrackBar.tsx`: トラックの選択・追加・リネーム・表示/非表示トグルのバー UI を扱う
 - `app/hooks/useFlickGesture.ts`: フリック方向から音価と modifier を確定する
 - `app/hooks/usePlayback.ts`: Web Audio による発音と step 単位の再生カーソル進行を管理する
 - `app/hooks/useTabStorage.ts`: localStorage への読み書きと legacy データ移行を担う
@@ -57,7 +58,9 @@
 - 旧データ `quick-tab:mvp:v4`〜`v1` が存在する場合は、初回読込時に v5 モデルへ normalize して取り込む
 - TAB データの基本構造は `TabData (= TabDataV5) = { version: "v5", tempo, timeSig, key?, ticksPerQuarter, tracks }`。`tracks` は `TabTrack = { name, tuning, measures }` の配列
 - 全トラックの measure 数は常に一致する(sanitize が不足分を空 measure でパディングして保証する)。measure の追加・挿入・削除・複製は全トラックへ構造適用し、measure 単位コピー/貼り付けはアクティブトラックの内容に対して行う
-- 編集・選択・フレットボード入力はアクティブトラック1本を対象とする(現状はトラック0固定。トラックバー UI は次段)
+- 編集・選択・フレットボード入力はアクティブトラック1本を対象とする。トラックバーまたは他トラックのセルをタップしてアクティブトラックを切り替える
+- 譜面はシステム(行)ごとに可視トラックの「五線譜+TAB」ペアを縦積みで表示する。measure 幅は可視トラック中の最大幅で揃え、小節線を全トラックでアライメントする。トラックごとの表示/非表示は UI 状態(👁 トグル)で、アクティブトラックは常に表示される
+- トラックの追加・リネーム・削除(最後の1本は不可)を提供する。非アクティブトラックのセルはタップでトラック切替+セル選択になる
 - 時間表現は tick が正本で、`ticksPerQuarter = 24`（コード上の `TICKS_PER_QUARTER` を正とする）。イベントの `step` / `len` は tick 値であり、v3 までの step と同一スケール（1 step = 1 tick）
 - `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出する。全拍子は measure 容量が 96 tick 以下になるよう選定されている
 - 拍子変更時は既存イベントを保持し、新容量を超える部分は overflow として扱う
@@ -109,6 +112,7 @@
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
+- 再生と MusicXML export/import は当面アクティブ(または先頭)トラックのみが対象。全トラックミックス再生と複数 part 入出力は次段
 - 拍子はドキュメント単位で、measure ごとの拍子変更には未対応。`TICKS_PER_QUARTER = 24` は単純な音価には十分だが、複雑な tuplet には分解能引き上げが必要になりうる
 - overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
 - 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある

@@ -10,6 +10,8 @@ import {
 type UseRangeSelectionParams = {
   gridRef: RefObject<HTMLDivElement | null>;
   getRangeSelectableStep: (measureIndex: number, stepIndex: number) => number;
+  /** Drag-over cells from other tracks are ignored. */
+  activeTrackIndex: number;
 };
 
 /**
@@ -17,7 +19,7 @@ type UseRangeSelectionParams = {
  * enforced by normalizeStepRange in tabModel). Tracks the anchor, the live
  * range, and whether the pointer actually dragged (to suppress click).
  */
-export function useRangeSelection({ gridRef, getRangeSelectableStep }: UseRangeSelectionParams) {
+export function useRangeSelection({ gridRef, getRangeSelectableStep, activeTrackIndex }: UseRangeSelectionParams) {
   const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
   const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
   const [isDraggingRange, setIsDraggingRange] = useState(false);
@@ -96,7 +98,8 @@ export function useRangeSelection({ gridRef, getRangeSelectableStep }: UseRangeS
       }
       const mi = cell.getAttribute("data-measure-index");
       const si = cell.getAttribute("data-step-index");
-      if (mi !== null && si !== null) {
+      const ti = cell.getAttribute("data-track-index");
+      if (mi !== null && si !== null && (ti === null || Number(ti) === activeTrackIndex)) {
         handleRangeMouseEnterRef.current(Number(mi), Number(si));
       }
     };
@@ -117,7 +120,7 @@ export function useRangeSelection({ gridRef, getRangeSelectableStep }: UseRangeS
       window.removeEventListener("mousemove", handleMouseMove);
       grid.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [gridRef, isDraggingRange]);
+  }, [activeTrackIndex, gridRef, isDraggingRange]);
 
   return {
     selectedRange,

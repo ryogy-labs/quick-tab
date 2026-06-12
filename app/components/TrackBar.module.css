@@ -1,0 +1,82 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 4px 2px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #a6bed7;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.chipActive {
+  border-color: #2f6fa7;
+  background: #e8f0f8;
+}
+
+.chipHidden .name {
+  color: #a0b0c0;
+}
+
+.name {
+  border: none;
+  background: none;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #274968;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chipActive .name {
+  color: #16456e;
+}
+
+.eye {
+  border: none;
+  border-left: 1px solid #d1e1ef;
+  background: none;
+  padding: 5px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.eye:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.name:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.addBtn {
+  border: 1px dashed #a6bed7;
+  border-radius: 8px;
+  background: none;
+  color: #274968;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.addBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
