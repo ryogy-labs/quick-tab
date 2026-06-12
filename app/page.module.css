@@ -271,7 +271,11 @@
 }
 
 .measureBarLineFullHeight {
-  height: 100%;
+  /* String lines sit at each cell's vertical center, so the bar line runs
+     from the 1st string line to the 6th, not the full grid box. */
+  top: 18px;
+  bottom: 18px;
+  height: auto;
 }
 
 .measureBarLineEnd {
@@ -461,5 +465,10 @@
 
   .trackBlock {
     padding-bottom: 18px;
+  }
+
+  .measureBarLineFullHeight {
+    top: 7px;
+    bottom: 7px;
   }
 }
