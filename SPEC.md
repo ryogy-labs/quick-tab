@@ -26,6 +26,7 @@
 - `app/hooks/useDigitInput.ts`: フレット番号の 2 桁入力バッファを担う
 - `app/hooks/useNotationZoom.ts`: 譜面/フレットボードのズーム率、ピンチジェスチャ、五線譜小節線オーバーレイのメトリクス計測を担う
 - `app/services/tabFile.ts`: TAB データの JSON export/import(ファイル境界)を担う
+- `app/services/musicXml.ts`: canonical model から MusicXML への format adapter(export のみ)を担う
 
 ## Core Flows
 - エディタは tick 単位（4 分音符 = 24 tick）の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する。拍子（4/4, 3/4, 2/4, 6/8）はドキュメント単位で選択でき、measure 容量はその拍子から導出される
@@ -42,7 +43,8 @@
 - Undo/Redo はローカル履歴で管理し、キーボードショートカットにも対応する
 - Play を押すと現在 measure から step 単位で再生カーソルが進み、各 step 開始位置のイベントだけを発音する。overflow measure では remainder をスキップして次 measure へ進む。最後の measure まで到達すると停止し、選択は先頭へ戻る
 - Tie された note の再生では、直前の同一弦・同一フレット note の発音を Tie note まで延長し、Tie note は再アタックしない
-- Export は現在の TAB データを JSON としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
+- Export は現在の TAB データを JSON または MusicXML としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
+- MusicXML export は score-partwise + 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)として書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める。MusicXML import は未対応
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する
 
 ## Data Model

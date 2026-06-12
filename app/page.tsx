@@ -17,6 +17,7 @@ import { useTabEditing } from "./hooks/useTabEditing";
 import { useMeasureOps } from "./hooks/useMeasureOps";
 import { useNotationZoom, MIN_SCALE, MAX_SCALE } from "./hooks/useNotationZoom";
 import { downloadTabDataAsJson, readTabDataFile } from "./services/tabFile";
+import { downloadTabDataAsMusicXml } from "./services/musicXml";
 import {
   CellPosition,
   KEY_SIGNATURES,
@@ -382,6 +383,10 @@ export default function Home() {
     downloadTabDataAsJson(tabData);
   }, [tabData]);
 
+  const handleExportMusicXml = useCallback(() => {
+    downloadTabDataAsMusicXml(tabData);
+  }, [tabData]);
+
   const handleImportFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -519,6 +524,7 @@ export default function Home() {
     { type: "button" as const, label: "Paste Range", onClick: handlePasteRange, disabled: isPlaying || rangeClipboard === null },
     { type: "separator" as const },
     { type: "button" as const, label: "Export JSON", onClick: handleExport },
+    { type: "button" as const, label: "Export MusicXML", onClick: handleExportMusicXml },
     { type: "file" as const, label: "Import JSON", accept: "application/json", onChange: handleImportFile },
     { type: "separator" as const },
     {
@@ -594,7 +600,7 @@ export default function Home() {
         </div>
       ),
     },
-  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleImportFile]);
+  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile]);
 
   return (
     <div className={styles.page}>
