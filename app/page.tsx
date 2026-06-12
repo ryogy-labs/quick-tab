@@ -18,7 +18,7 @@ import { useTabEditing } from "./hooks/useTabEditing";
 import { useMeasureOps } from "./hooks/useMeasureOps";
 import { useNotationZoom, MIN_SCALE, MAX_SCALE } from "./hooks/useNotationZoom";
 import { downloadTabDataAsJson, readTabDataFile } from "./services/tabFile";
-import { downloadTabDataAsMusicXml } from "./services/musicXml";
+import { downloadTabDataAsMusicXml, readTabDataMusicXmlFile } from "./services/musicXml";
 import {
   CellPosition,
   KEY_SIGNATURES,
@@ -398,6 +398,30 @@ export default function Home() {
     downloadTabDataAsMusicXml(tabData);
   }, [tabData]);
 
+  const handleImportMusicXmlFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const imported = await readTabDataMusicXmlFile(file);
+      if (!imported) {
+        alert("Invalid MusicXML file.");
+        return;
+      }
+
+      setTabData(imported);
+      stopPlayback();
+      clearDigitBuffer();
+    } catch {
+      alert("Failed to import MusicXML.");
+    } finally {
+      event.target.value = "";
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopPlayback]);
+
   const handleImportFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -560,6 +584,7 @@ export default function Home() {
     { type: "button" as const, label: "Export JSON", onClick: handleExport },
     { type: "button" as const, label: "Export MusicXML", onClick: handleExportMusicXml },
     { type: "file" as const, label: "Import JSON", accept: "application/json", onChange: handleImportFile },
+    { type: "file" as const, label: "Import MusicXML", accept: ".musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml", onChange: handleImportMusicXmlFile },
     { type: "separator" as const },
     {
       type: "custom" as const,
@@ -634,7 +659,7 @@ export default function Home() {
         </div>
       ),
     },
-  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile]);
+  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile, handleImportMusicXmlFile]);
 
   return (
     <div className={styles.page}>

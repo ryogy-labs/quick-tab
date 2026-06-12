@@ -679,7 +679,12 @@ export const sanitizeEvents = (
   const accepted: TabEvent[] = [];
   sorted.forEach((candidate) => {
     const hasOverlap = accepted.some((existing) =>
-      rangesOverlap(existing.step, existing.len, candidate.step, candidate.len)
+      rangesOverlap(
+        existing.step,
+        Math.max(1, getEventOccupiedSteps(existing)),
+        candidate.step,
+        Math.max(1, getEventOccupiedSteps(candidate))
+      )
     );
     if (hasOverlap) {
       console.warn(
@@ -738,7 +743,15 @@ export const canPlaceEvent = (
 
   return sanitizeEvents(events, stepsPerMeasure, allowOverflow)
     .filter((event) => event.step !== options.ignoreStep)
-    .every((event) => !rangesOverlap(event.step, event.len, safeStep, safeLen));
+    .every(
+      (event) =>
+        !rangesOverlap(
+          event.step,
+          Math.max(1, getEventOccupiedSteps(event)),
+          safeStep,
+          safeLen
+        )
+    );
 };
 
 export const isStepBlockedForNewStart = (
@@ -748,7 +761,9 @@ export const isStepBlockedForNewStart = (
 ): boolean => {
   const safeStep = clampDisplayStep(stepIndex, stepsPerMeasure);
   return sanitizeEvents(events, stepsPerMeasure, true).some(
-    (event) => safeStep > event.step && safeStep < event.step + event.len
+    (event) =>
+      safeStep > event.step &&
+      safeStep < event.step + Math.max(1, getEventOccupiedSteps(event))
   );
 };
 
@@ -761,7 +776,9 @@ export const findOwningEventStep = (
 ): number => {
   const safeStep = clampDisplayStep(stepIndex, stepsPerMeasure);
   const owning = sanitizeEvents(events, stepsPerMeasure, true).find(
-    (event) => safeStep > event.step && safeStep < event.step + event.len
+    (event) =>
+      safeStep > event.step &&
+      safeStep < event.step + Math.max(1, getEventOccupiedSteps(event))
   );
   return owning ? owning.step : safeStep;
 };
