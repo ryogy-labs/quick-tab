@@ -9,8 +9,8 @@
 - Storage: 保存先はブラウザ `localStorage`。サーバー保存や同期機構は持たない
 
 ## Structure
-- `app/page.tsx`: エディタ本体。選択状態、入力、再生、measure 操作、クリップボード、永続化、キーボードショートカットを統合管理する
-- `app/tabModel.ts`: TAB データモデルと編集ルール。イベント衝突判定、sanitize、measure 操作、コピー/ペースト変換、legacy 互換を担う
+- `app/page.tsx`: エディタ本体。UI 状態(選択セル、入力モード、tempo 表示等)を保持し、下記 hook 群を統合して JSX を描画する統合レイヤー
+- `app/tabModel.ts`: TAB データモデルと編集ルール。イベント衝突判定、sanitize、measure 操作、コピー/ペースト変換、カーソル前進計算、legacy 互換を担う
 - `app/components/StaffPreview.tsx`: TAB データから五線譜プレビューを描画する
 - `app/components/FretboardInput.tsx`: フレットボード UI とフリック入力を扱う
 - `app/components/MobileNumpad.tsx`: モバイル向け数字入力と休符入力を扱う
@@ -19,6 +19,13 @@
 - `app/hooks/useTabStorage.ts`: localStorage への読み書きと legacy データ移行を担う
 - `app/hooks/useUndoRedo.ts`: undo/redo スタック管理と canUndo/canRedo 状態を担う
 - `app/hooks/useKeyboardShortcuts.ts`: キーボードショートカットのイベント登録を担う
+- `app/hooks/useNotationLayout.ts`: tabData と選択状態から表示レイアウト(displayUnit、measure ごとの step/slot テーブル、blocked steps、overflow、measure 開始 X 座標)を導出する
+- `app/hooks/useTabEditing.ts`: ノート/休符配置、フリック配置、音価変更、削除、Tie の編集ハンドラを担う。編集ルール自体は tabModel に委譲する
+- `app/hooks/useMeasureOps.ts`: measure 移動・追加・挿入・削除・複製と measure/range クリップボード操作を担う
+- `app/hooks/useRangeSelection.ts`: ドラッグによる範囲選択状態とポインタイベント処理を担う
+- `app/hooks/useDigitInput.ts`: フレット番号の 2 桁入力バッファを担う
+- `app/hooks/useNotationZoom.ts`: 譜面/フレットボードのズーム率、ピンチジェスチャ、五線譜小節線オーバーレイのメトリクス計測を担う
+- `app/services/tabFile.ts`: TAB データの JSON export/import(ファイル境界)を担う
 
 ## Core Flows
 - エディタは 4/4・96 step 単位の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する
@@ -67,7 +74,7 @@
 ## Future Native Migration
 - iPhone アプリ化を見据えるが、早期段階では Web 実装を先行し、入力体験と編集ルールの確立を優先する
 - Swift / SwiftUI への移植を前提に、編集ルール、時間計算、sanitize、import/export、playback scheduling に関わるロジックは UI 層から分離して管理する
-- `page.tsx` は一時的に統合責務を担うが、将来的には `tabModel.ts` と周辺 hook / service にロジックを寄せ、UI 依存のない core を厚くする
+- 編集ロジックは `tabModel.ts` と周辺 hook / service へ分離済み。今後も UI 依存のない core を厚くする方針を維持する
 - ネイティブ移植時も canonical model は共通仕様として維持し、Web と iOS で別々の譜面仕様を持たない
 - gesture, selection, clipboard, playback cursor などの UI 挙動は platform ごとの差異を許容するが、編集結果の整合性は共通 core で担保する
 - App Store 配布や iOS 固有機能への対応は将来の native UI 採用理由になりうるが、それ自体を理由に早期全面移植は行わない
@@ -85,7 +92,7 @@
 
 
 ## Known Issues
-- `app/page.tsx` に UI 状態、再生、永続化、ショートカット、clipboard 処理が集中しており変更影響範囲が広い
+- 編集・選択・measure 操作などのロジックは hook / model へ分離済みだが、`page.tsx` は依然それらの統合点であり、hook 間の受け渡しインターフェースが広い
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
 - 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
