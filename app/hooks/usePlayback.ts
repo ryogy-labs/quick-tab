@@ -8,6 +8,7 @@ import {
   TabEvent,
   findEventAtStep,
   getDataMeasureTicks,
+  getTrackMeasures,
   getEventOccupiedSteps,
   getPlaybackDuration,
   toFrequency,
@@ -20,6 +21,7 @@ export type PlayCursor = {
 
 type UsePlaybackOptions = {
   tabData: TabData;
+  trackIndex: number;
   selectedMeasureIndex: number;
   overflowingMeasureSet: Set<number>;
   onPlaybackEnd: () => void;
@@ -30,7 +32,7 @@ const noteKey = (note: { string: number; fret: number }) => `${note.string}:${no
 const toLinearStep = (measureIndex: number, stepIndex: number, measureTicks: number) =>
   measureIndex * measureTicks + stepIndex;
 
-const getSortedEventsWithPosition = (measures: TabData["measures"]) =>
+const getSortedEventsWithPosition = (measures: { events: TabEvent[] }[]) =>
   measures.flatMap((measure, measureIndex) =>
     measure.events.map((event) => ({ event, measureIndex }))
   ).sort((a, b) => {
@@ -39,7 +41,7 @@ const getSortedEventsWithPosition = (measures: TabData["measures"]) =>
   });
 
 const getPlaybackNoteContext = (
-  measures: TabData["measures"],
+  measures: { events: TabEvent[] }[],
   measureIndex: number,
   event: TabEvent,
   measureTicks: number
@@ -115,6 +117,7 @@ const getPlaybackNoteContext = (
 
 export function usePlayback({
   tabData,
+  trackIndex,
   selectedMeasureIndex,
   overflowingMeasureSet,
   onPlaybackEnd,
@@ -213,12 +216,13 @@ export function usePlayback({
   }, []);
 
   const playNotePreview = useCallback(
-    (data: TabData, measureIndex: number, stepIndex: number) => {
-      const evts = data.measures.at(measureIndex)?.events ?? [];
+    (data: TabData, previewTrackIndex: number, measureIndex: number, stepIndex: number) => {
+      const trackMeasures = getTrackMeasures(data, previewTrackIndex);
+      const evts = trackMeasures.at(measureIndex)?.events ?? [];
       const evt = findEventAtStep(evts, stepIndex);
       if (evt) {
         const context = getPlaybackNoteContext(
-          data.measures,
+          trackMeasures,
           measureIndex,
           evt,
           getDataMeasureTicks(data)
@@ -236,13 +240,14 @@ export function usePlayback({
     }
 
     const measureTicks = getDataMeasureTicks(tabData);
-    const isAtEnd = selectedMeasureIndex >= tabData.measures.length - 1;
+    const trackMeasures = getTrackMeasures(tabData, trackIndex);
+    const isAtEnd = selectedMeasureIndex >= trackMeasures.length - 1;
     const startMeasureIndex = isAtEnd ? 0 : selectedMeasureIndex;
     let linearIndex = startMeasureIndex * measureTicks;
-    const endLinearExclusive = tabData.measures.length * measureTicks;
+    const endLinearExclusive = trackMeasures.length * measureTicks;
     const tempo = tabData.tempo;
     const stepDurationMs = 60_000 / tempo / TICKS_PER_QUARTER;
-    const measuresForPlayback = tabData.measures.map((measure) => measure.events);
+    const measuresForPlayback = trackMeasures.map((measure) => measure.events);
     const overflowingMeasuresForPlayback = new Set(overflowingMeasureSet);
 
     setIsPlaying(true);
@@ -256,7 +261,7 @@ export function usePlayback({
     const firstEvent = findEventAtStep(firstEvents, initialCursor.stepIndex);
     if (firstEvent) {
       const context = getPlaybackNoteContext(
-        tabData.measures,
+        trackMeasures,
         initialCursor.measureIndex,
         firstEvent,
         measureTicks
@@ -300,7 +305,7 @@ export function usePlayback({
       const current = findEventAtStep(eventsForMeasure, cursor.stepIndex);
       if (current) {
         const context = getPlaybackNoteContext(
-          tabData.measures,
+          trackMeasures,
           cursor.measureIndex,
           current,
           measureTicks
@@ -308,7 +313,7 @@ export function usePlayback({
         void playEvent(current, tempo, context);
       }
     }, stepDurationMs);
-  }, [isPlaying, stopPlayback, tabData, selectedMeasureIndex, overflowingMeasureSet, playEvent]);
+  }, [isPlaying, stopPlayback, tabData, trackIndex, selectedMeasureIndex, overflowingMeasureSet, playEvent]);
 
   return { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview };
 }

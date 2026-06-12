@@ -33,6 +33,7 @@ import {
 
 type UseTabEditingParams = {
   tabData: TabData;
+  trackIndex: number;
   commitTabData: (data: TabData) => void;
   selected: CellPosition;
   setSelected: Dispatch<SetStateAction<CellPosition>>;
@@ -57,7 +58,7 @@ type UseTabEditingParams = {
   setInputLen: Dispatch<SetStateAction<number>>;
   setIsRestMode: Dispatch<SetStateAction<boolean>>;
   isPlaying: boolean;
-  playNotePreview: (data: TabData, measureIndex: number, stepIndex: number) => void;
+  playNotePreview: (data: TabData, trackIndex: number, measureIndex: number, stepIndex: number) => void;
 };
 
 /**
@@ -67,6 +68,7 @@ type UseTabEditingParams = {
  */
 export function useTabEditing({
   tabData,
+  trackIndex,
   commitTabData,
   selected,
   setSelected,
@@ -95,7 +97,7 @@ export function useTabEditing({
 }: UseTabEditingParams) {
   const commitNoteAtSelected = (fret: number, forceTie = false) => {
     const safeFret = clampFret(fret);
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       selected.stepIndex,
@@ -136,9 +138,10 @@ export function useTabEditing({
       : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
+    const updatedData = updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
+      trackIndex,
       selected,
       activeInputLen,
       isPlaying,
@@ -146,7 +149,7 @@ export function useTabEditing({
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, selected.stepIndex);
+    playNotePreview(updatedData, trackIndex, selectedMeasureIndex, selected.stepIndex);
   };
 
   const commitFretboardNote = (rowIndex: number, fret: number) => {
@@ -168,7 +171,7 @@ export function useTabEditing({
     setSingleCellSelection(nextSelected);
 
     if (isActiveNote) {
-      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+      const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
       const oldEvent = findEventAtStep(measureEvents, nextSelected.stepIndex);
       const nextEvents = deleteSpecificNoteAtStep(
         measureEvents,
@@ -182,11 +185,11 @@ export function useTabEditing({
         oldEvent && !remainingEvent
           ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks)
           : sanitizeEvents(nextEvents, measureTicks, true);
-      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
+      commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents));
       return;
     }
 
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       nextSelected.stepIndex,
@@ -226,9 +229,10 @@ export function useTabEditing({
       : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
     const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
+    const updatedData = updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
+      trackIndex,
       nextSelected,
       activeInputLen,
       isPlaying,
@@ -236,7 +240,7 @@ export function useTabEditing({
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
+    playNotePreview(updatedData, trackIndex, selectedMeasureIndex, nextSelected.stepIndex);
   };
 
   const placeRestAtStep = (stepIndex: number) => {
@@ -252,7 +256,7 @@ export function useTabEditing({
     ) {
       return;
     }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const nextEvents = upsertRestAtStep(
       measureEvents,
       stepIndex,
@@ -260,9 +264,10 @@ export function useTabEditing({
       selectedMeasureDisplaySteps,
       true
     );
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
+    const updatedData = updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, nextEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
+      trackIndex,
       { ...selected, stepIndex },
       activeInputLen,
       isPlaying,
@@ -291,7 +296,7 @@ export function useTabEditing({
     setSingleCellSelection(nextSelected);
 
     // Always overwrite (no toggle) — flick is an intentional placement gesture
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       nextSelected.stepIndex,
@@ -342,9 +347,10 @@ export function useTabEditing({
     });
     const newEvent = findEventAtStep(modifiedEvents, nextSelected.stepIndex);
     const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
+    const updatedData = updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
+      trackIndex,
       nextSelected,
       len,
       isPlaying,
@@ -352,7 +358,7 @@ export function useTabEditing({
     );
     commitTabData(result.nextData);
     setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
+    playNotePreview(updatedData, trackIndex, selectedMeasureIndex, nextSelected.stepIndex);
 
     // Sync toolbar duration display
     setInputLen(len);
@@ -374,7 +380,7 @@ export function useTabEditing({
     ) {
       return;
     }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const nextEvents = upsertRestAtStep(
       measureEvents,
       stepIndex,
@@ -394,9 +400,10 @@ export function useTabEditing({
       return base;
     });
 
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, modifiedEvents);
+    const updatedData = updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, modifiedEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
+      trackIndex,
       { ...selected, stepIndex },
       len,
       isPlaying,
@@ -414,16 +421,16 @@ export function useTabEditing({
     clearDigitBuffer();
     if (selectedRange) {
       // Delete all events within the range selection
-      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+      const measureEvents = getMeasureEvents(tabData, trackIndex, selectedRange.startMeasureIndex);
       const nextEvents = measureEvents.filter(
         (event) =>
           event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
       );
-      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
+      commitTabData(updateMeasureEvents(tabData, trackIndex, selectedRange.startMeasureIndex, nextEvents));
       setSelectedRange(null);
       return;
     }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const owningStep = findOwningEventStep(
       measureEvents,
       selected.stepIndex,
@@ -440,23 +447,23 @@ export function useTabEditing({
       oldEvent && !remainingEvent
         ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks)
         : sanitizeEvents(nextEvents, measureTicks, true);
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents));
   };
 
   const handleDeleteEvent = () => {
     clearDigitBuffer();
     if (selectedRange) {
-      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+      const measureEvents = getMeasureEvents(tabData, trackIndex, selectedRange.startMeasureIndex);
       const nextEvents = measureEvents.filter(
         (event) =>
           event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
       );
-      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
+      commitTabData(updateMeasureEvents(tabData, trackIndex, selectedRange.startMeasureIndex, nextEvents));
       setSelectedRange(null);
       return;
     }
 
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const owningStep = findOwningEventStep(
       measureEvents,
       selected.stepIndex,
@@ -467,7 +474,7 @@ export function useTabEditing({
       (event) => event.step !== owningStep
     );
     const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks);
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents));
   };
 
   const handleToggleTie = () => {
@@ -478,6 +485,7 @@ export function useTabEditing({
     if (!selectedNote) {
       const previousNote = findPreviousNoteOnString(
         tabData,
+        trackIndex,
         selectedMeasureIndex,
         selected.stepIndex,
         selectedStringNumber,
@@ -493,7 +501,7 @@ export function useTabEditing({
       return;
     }
 
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const owningStep = findOwningEventStep(
       measureEvents,
       selected.stepIndex,
@@ -505,7 +513,7 @@ export function useTabEditing({
       selectedStringNumber,
       selectedMeasureDisplaySteps
     );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, nextEvents));
     setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
   };
 
@@ -514,7 +522,7 @@ export function useTabEditing({
       return;
     }
 
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const owningStep = findOwningEventStep(
       measureEvents,
       selected.stepIndex,
@@ -527,7 +535,7 @@ export function useTabEditing({
       technique,
       selectedMeasureDisplaySteps
     );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, nextEvents));
     setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
   };
 
@@ -552,7 +560,7 @@ export function useTabEditing({
       return;
     }
 
-    const measureEventsForLen = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEventsForLen = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEventsForLen,
       targetStep,
@@ -590,7 +598,7 @@ export function useTabEditing({
       autoShift,
       measureTicks
     );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, finalEvents));
     setSelected((prev) => ({ ...prev, stepIndex: targetStep }));
   };
 

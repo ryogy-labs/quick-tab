@@ -6,6 +6,7 @@ import {
   SIXTEENTH_STEPS,
   TabData,
   getDataMeasureTicks,
+  getTrackMeasures,
   TabEvent,
   eventsToGrid,
   findEventAtStep,
@@ -25,6 +26,7 @@ export type DisplayCell = {
 
 type UseNotationLayoutParams = {
   tabData: TabData;
+  trackIndex: number;
   selected: CellPosition;
   inputLen: number;
   isRestMode: boolean;
@@ -39,6 +41,7 @@ type UseNotationLayoutParams = {
  */
 export function useNotationLayout({
   tabData,
+  trackIndex,
   selected,
   inputLen,
   isRestMode,
@@ -46,11 +49,12 @@ export function useNotationLayout({
   tabMeasureWidth,
 }: UseNotationLayoutParams) {
   const measureTicks = getDataMeasureTicks(tabData);
+  const trackMeasures = getTrackMeasures(tabData, trackIndex);
   const selectedMeasureIndex = Math.max(
     0,
-    Math.min(tabData.measures.length - 1, selected.measureIndex)
+    Math.min(trackMeasures.length - 1, selected.measureIndex)
   );
-  const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
+  const events = trackMeasures.at(selectedMeasureIndex)?.events ?? [];
   const selectedEvent = findEventAtStep(events, selected.stepIndex);
   const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
   const activeFretboardNotes =
@@ -65,9 +69,9 @@ export function useNotationLayout({
   const activeInputLen = selectedEvent ? selectedEvent.len : inputLen;
   const activeIsRestMode =
     selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
-  const totalMeasures = tabData.measures.length;
+  const totalMeasures = trackMeasures.length;
 
-  const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
+  const minEventLenAcrossMeasures = trackMeasures.reduce((globalMin, measure) => {
     const localMin = measure.events.reduce(
       (min, event) => Math.min(min, Math.max(1, event.len)),
       measureTicks
@@ -86,7 +90,7 @@ export function useNotationLayout({
 
   const blockedStepsByMeasure = useMemo(
     () =>
-      tabData.measures.map((measure) => {
+      trackMeasures.map((measure) => {
         const visibleSteps = getVisibleStepsForEvents(
           measure.events,
           getMeasureDisplaySteps(measure.events, displayUnit, measureTicks),
@@ -106,36 +110,36 @@ export function useNotationLayout({
         });
         return set;
       }),
-    [displayUnit, measureTicks, tabData.measures]
+    [displayUnit, measureTicks, trackMeasures]
   );
   const overflowingMeasureSet = useMemo(
     () =>
       new Set(
-        tabData.measures
+        trackMeasures
           .map((measure, index) =>
             isMeasureOverflowing(measure.events, measureTicks) ? index : -1
           )
           .filter((index) => index >= 0)
       ),
-    [measureTicks, tabData.measures]
+    [measureTicks, trackMeasures]
   );
   const measureDisplayStepsByMeasure = useMemo(
     () =>
-      tabData.measures.map((measure) =>
+      trackMeasures.map((measure) =>
         getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
       ),
-    [displayUnit, measureTicks, tabData.measures]
+    [displayUnit, measureTicks, trackMeasures]
   );
   const measureVisibleStepsByMeasure = useMemo(
     () =>
       measureDisplayStepsByMeasure.map((displaySteps, measureIndex) =>
         getVisibleStepsForEvents(
-          tabData.measures[measureIndex]?.events ?? [],
+          trackMeasures[measureIndex]?.events ?? [],
           displaySteps,
           displayUnit
         )
       ),
-    [displayUnit, measureDisplayStepsByMeasure, tabData.measures]
+    [displayUnit, measureDisplayStepsByMeasure, trackMeasures]
   );
 
   // Proportional spacing: an event slot's width grows sub-linearly with its
@@ -143,7 +147,7 @@ export function useNotationLayout({
   const slotWidthsByMeasure = useMemo(
     () =>
       measureVisibleStepsByMeasure.map((visibleSteps, measureIndex) => {
-        const events = tabData.measures[measureIndex]?.events ?? [];
+        const events = trackMeasures[measureIndex]?.events ?? [];
         return visibleSteps.map((step) => {
           const event = findEventAtStep(events, step);
           if (!event || event.step !== step) {
@@ -153,7 +157,7 @@ export function useNotationLayout({
           return Math.max(stepWidth * 0.8, stepWidth * Math.pow(units, 0.62));
         });
       }),
-    [displayUnit, measureVisibleStepsByMeasure, stepWidth, tabData.measures]
+    [displayUnit, measureVisibleStepsByMeasure, stepWidth, trackMeasures]
   );
   const slotOffsetsByMeasure = useMemo(
     () =>
@@ -181,10 +185,10 @@ export function useNotationLayout({
   const blockedStepSet = blockedStepsByMeasure[selectedMeasureIndex] ?? new Set<number>();
   const measureGrids = useMemo(
     () =>
-      tabData.measures.map((measure, index) =>
+      trackMeasures.map((measure, index) =>
         eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? measureTicks)
       ),
-    [measureDisplayStepsByMeasure, measureTicks, tabData.measures]
+    [measureDisplayStepsByMeasure, measureTicks, trackMeasures]
   );
   const displayCells = useMemo<DisplayCell[]>(
     () =>
@@ -198,8 +202,8 @@ export function useNotationLayout({
     [measureVisibleStepsByMeasure]
   );
   const measuresEvents = useMemo<TabEvent[][]>(
-    () => tabData.measures.map((measure) => measure.events),
-    [tabData.measures]
+    () => trackMeasures.map((measure) => measure.events),
+    [trackMeasures]
   );
   const measureStartXs = useMemo(() => {
     const starts = [tabLabelWidth];

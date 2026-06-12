@@ -11,6 +11,7 @@ import {
   TabNoteEventNote,
   getDataMeasureTicks,
   getEventOccupiedSteps,
+  getTrackMeasures,
   sanitizeEvents,
   sanitizeTabData,
 } from "../tabModel";
@@ -190,8 +191,11 @@ export const tabDataToMusicXml = (data: TabData): string => {
   const [beats, beatType] = data.timeSig.split("/").map(Number);
   const key = data.key ?? "C";
   const useFlats = KEY_ACCIDENTAL_COUNTS[key].flats > 0;
+  // Single-part export for now; one part per track lands with the
+  // multitrack playback/export pass.
+  const exportMeasures = getTrackMeasures(data, 0);
 
-  const measuresXml = data.measures
+  const measuresXml = exportMeasures
     .map((measure, measureIndex) => {
       const events = sanitizeEvents(measure.events, measureTicks, true)
         .filter((event) => event.step < measureTicks)
@@ -222,7 +226,7 @@ export const tabDataToMusicXml = (data: TabData): string => {
           // (in this or a later measure) carries the tie flag.
           const nextEvents = [
             ...events.slice(eventIndex + 1),
-            ...(data.measures
+            ...(exportMeasures
               .at(measureIndex + 1)
               ?.events.slice()
               .sort((a, b) => a.step - b.step) ?? []),
@@ -505,13 +509,12 @@ export const musicXmlToTabData = (xml: string): TabData | null => {
 
   return sanitizeTabData(
     {
-      version: "v4",
+      version: "v5",
       tempo: Math.min(300, Math.max(30, tempo)),
       timeSig,
       key,
       ticksPerQuarter: TICKS_PER_QUARTER,
-      tuning: [...TUNING],
-      measures,
+      tracks: [{ name: "Guitar", tuning: [...TUNING], measures }],
     },
     true
   );
