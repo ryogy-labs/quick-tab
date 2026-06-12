@@ -300,6 +300,10 @@
   /* grid-template-columns is set inline per system (slot count varies) */
   gap: 0;
   align-items: stretch;
+  /* Pin the row to the cell height: a taller string label would otherwise
+     stretch the row and shift the string lines away from the bar-line
+     insets. Labels overflow visibly and stay flex-centered. */
+  height: 36px;
 }
 
 .stringLabel {
@@ -311,6 +315,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  line-height: 1;
 }
 
 .cell {
@@ -440,7 +445,7 @@
   }
 
   .cell {
-    height: 14px;
+    height: 24px;
   }
 
   .cellValue {
@@ -468,7 +473,11 @@
   }
 
   .measureBarLineFullHeight {
-    top: 7px;
-    bottom: 7px;
+    top: 12px;
+    bottom: 12px;
+  }
+
+  .row {
+    height: 24px;
   }
 }
