@@ -212,6 +212,36 @@ export function useNotationLayout({
     );
   }, [stepWidth, trackIndex, trackLayouts, visibleTrackIndices]);
 
+  // Aligned slot tables: each track's measure stretches to the shared width
+  // by scaling its slots proportionally (no trailing dead space).
+  const alignedSlotWidthsByTrack = useMemo(
+    () =>
+      trackLayouts.map((layout) =>
+        layout.slotWidthsByMeasure.map((widths, measureIndex) => {
+          const trackWidth = layout.measureWidthsByMeasure[measureIndex] ?? 0;
+          const targetWidth = sharedMeasureWidths[measureIndex] ?? trackWidth;
+          const scale = trackWidth > 0 ? targetWidth / trackWidth : 1;
+          return widths.map((width) => width * scale);
+        })
+      ),
+    [sharedMeasureWidths, trackLayouts]
+  );
+  const alignedSlotOffsetsByTrack = useMemo(
+    () =>
+      alignedSlotWidthsByTrack.map((slotWidthsByMeasure) =>
+        slotWidthsByMeasure.map((widths) => {
+          const offsets: number[] = [];
+          let cursor = 0;
+          widths.forEach((width) => {
+            offsets.push(cursor);
+            cursor += width;
+          });
+          return offsets;
+        })
+      ),
+    [alignedSlotWidthsByTrack]
+  );
+
   const activeLayout = useMemo<TrackLayout>(
     () =>
       trackLayouts[trackIndex] ??
@@ -264,6 +294,8 @@ export function useNotationLayout({
     stepWidth,
     trackLayouts,
     sharedMeasureWidths,
+    alignedSlotWidthsByTrack,
+    alignedSlotOffsetsByTrack,
     anyTrackOverflowSet,
     selectedMeasureIndex,
     events,
