@@ -3,11 +3,10 @@
 import { Dispatch, SetStateAction, useState } from "react";
 import {
   CellPosition,
-  STEPS_PER_MEASURE,
   STRINGS_COUNT,
   StepRangeClipboard,
   StepRangeSelection,
-  TabDataV3,
+  TabData,
   TabMeasureV3,
   copyMeasure,
   deleteMeasure,
@@ -21,14 +20,15 @@ import {
 } from "../tabModel";
 
 type UseMeasureOpsParams = {
-  tabData: TabDataV3;
-  commitTabData: (data: TabDataV3) => void;
+  tabData: TabData;
+  commitTabData: (data: TabData) => void;
   isPlaying: boolean;
   selected: CellPosition;
   setSelected: Dispatch<SetStateAction<CellPosition>>;
   selectedMeasureIndex: number;
   totalMeasures: number;
   selectedRange: StepRangeSelection | null;
+  measureTicks: number;
   measureDisplayStepsByMeasure: number[];
   getClampedDisplayStep: (stepIndex: number, measureIndex: number) => number;
 };
@@ -47,6 +47,7 @@ export function useMeasureOps({
   selectedMeasureIndex,
   totalMeasures,
   selectedRange,
+  measureTicks,
   measureDisplayStepsByMeasure,
   getClampedDisplayStep,
 }: UseMeasureOpsParams) {
@@ -182,7 +183,7 @@ export function useMeasureOps({
     }
 
     const targetDisplaySteps =
-      measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
+      measureDisplayStepsByMeasure[selectedMeasureIndex] ?? measureTicks;
     const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
     const nextEvents = pasteRangeClipboardIntoMeasure(
       measureEvents,

@@ -4,10 +4,9 @@ import { Dispatch, SetStateAction } from "react";
 import {
   CellPosition,
   DurationModifier,
-  STEPS_PER_MEASURE,
   STRINGS_COUNT,
   StepRangeSelection,
-  TabDataV3,
+  TabData,
   applySequentialDeleteShift,
   applySequentialShift,
   canPlaceEvent,
@@ -31,8 +30,8 @@ import {
 } from "../tabModel";
 
 type UseTabEditingParams = {
-  tabData: TabDataV3;
-  commitTabData: (data: TabDataV3) => void;
+  tabData: TabData;
+  commitTabData: (data: TabData) => void;
   selected: CellPosition;
   setSelected: Dispatch<SetStateAction<CellPosition>>;
   setSingleCellSelection: (next: CellPosition) => void;
@@ -40,6 +39,7 @@ type UseTabEditingParams = {
   setSelectedRange: Dispatch<SetStateAction<StepRangeSelection | null>>;
   clearDigitBuffer: () => void;
   selectedMeasureIndex: number;
+  measureTicks: number;
   selectedMeasureDisplaySteps: number;
   measureDisplayStepsByMeasure: number[];
   events: ReturnType<typeof getMeasureEvents>;
@@ -55,7 +55,7 @@ type UseTabEditingParams = {
   setInputLen: Dispatch<SetStateAction<number>>;
   setIsRestMode: Dispatch<SetStateAction<boolean>>;
   isPlaying: boolean;
-  playNotePreview: (data: TabDataV3, measureIndex: number, stepIndex: number) => void;
+  playNotePreview: (data: TabData, measureIndex: number, stepIndex: number) => void;
 };
 
 /**
@@ -73,6 +73,7 @@ export function useTabEditing({
   setSelectedRange,
   clearDigitBuffer,
   selectedMeasureIndex,
+  measureTicks,
   selectedMeasureDisplaySteps,
   measureDisplayStepsByMeasure,
   events,
@@ -96,7 +97,8 @@ export function useTabEditing({
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       selected.stepIndex,
-      autoShift
+      autoShift,
+      measureTicks
     );
     const placementSource = autoShift && oldEvent ? placementEvents : measureEvents;
 
@@ -131,7 +133,7 @@ export function useTabEditing({
         )
       : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
+    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -176,8 +178,8 @@ export function useTabEditing({
       const remainingEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
       const finalEvents =
         oldEvent && !remainingEvent
-          ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
-          : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
+          ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks)
+          : sanitizeEvents(nextEvents, measureTicks, true);
       commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
       return;
     }
@@ -186,7 +188,8 @@ export function useTabEditing({
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       nextSelected.stepIndex,
-      autoShift
+      autoShift,
+      measureTicks
     );
     const placementSource = autoShift && oldEvent ? placementEvents : measureEvents;
 
@@ -220,7 +223,7 @@ export function useTabEditing({
         )
       : nextEventsWithoutTie;
     const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
+    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -290,7 +293,8 @@ export function useTabEditing({
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEvents,
       nextSelected.stepIndex,
-      autoShift
+      autoShift,
+      measureTicks
     );
     const placementSource = autoShift && oldEvent ? placementEvents : measureEvents;
 
@@ -335,7 +339,7 @@ export function useTabEditing({
       return base;
     });
     const newEvent = findEventAtStep(modifiedEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent, autoShift);
+    const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent, autoShift, measureTicks);
     const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
     const result = getNextCursorPositionWithAutoAppend(
       updatedData,
@@ -432,8 +436,8 @@ export function useTabEditing({
     const remainingEvent = findEventAtStep(nextEvents, owningStep);
     const finalEvents =
       oldEvent && !remainingEvent
-        ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
-        : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
+        ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks)
+        : sanitizeEvents(nextEvents, measureTicks, true);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
 
@@ -460,7 +464,7 @@ export function useTabEditing({
     const nextEvents = sanitizeEvents(measureEvents, selectedMeasureDisplaySteps, true).filter(
       (event) => event.step !== owningStep
     );
-    const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift);
+    const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift, measureTicks);
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
   };
 
@@ -528,7 +532,8 @@ export function useTabEditing({
     const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
       measureEventsForLen,
       targetStep,
-      autoShift
+      autoShift,
+      measureTicks
     );
     const placementSource = autoShift && oldEvent ? placementEvents : measureEventsForLen;
 
@@ -558,7 +563,8 @@ export function useTabEditing({
       deferredEvents,
       oldEvent,
       newEvent,
-      autoShift
+      autoShift,
+      measureTicks
     );
     commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
     setSelected((prev) => ({ ...prev, stepIndex: targetStep }));
