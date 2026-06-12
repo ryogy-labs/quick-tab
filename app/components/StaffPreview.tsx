@@ -180,53 +180,117 @@ const normalizeLenForDuration = (len: number): SupportedLen => {
   return snapped;
 };
 
-// SVG rest symbol renderers (draw directly in SVG since Unicode musical symbols lack font support)
-const RestWhole = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+// Rest renderers. Whole/half are the conventional filled blocks; the shorter
+// rests are engraved-style vector shapes (thick bands + curl for the quarter
+// rest, blob-and-tail for eighth/sixteenth). Unicode music glyphs are not
+// used because font coverage is unreliable across browsers.
+const RestWhole = ({ x, fill }: { x: number; fill: string }) => {
   // Filled rectangle hanging below line 4
   const lineY = STAFF_TOP + STAFF_LINE_GAP; // 2nd line from top
   return <rect x={x - 6} y={lineY} width={12} height={STAFF_LINE_GAP / 2} fill={fill} />;
 };
 
-const RestHalf = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
+const RestHalf = ({ x, fill }: { x: number; fill: string }) => {
   // Filled rectangle sitting on line 3
   const lineY = STAFF_TOP + STAFF_LINE_GAP * 2; // middle line
   return <rect x={x - 6} y={lineY - STAFF_LINE_GAP / 2} width={12} height={STAFF_LINE_GAP / 2} fill={fill} />;
 };
 
-const RestQuarter = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
-  // Classic quarter rest zig-zag shape
-  const top = STAFF_TOP + STAFF_LINE_GAP * 0.5;
-  return (
-    <path
-      d={`M ${x + 3} ${top} L ${x - 4} ${top + 8} L ${x + 4} ${top + 16} Q ${x - 5} ${top + 22} ${x - 3} ${top + 28} Q ${x + 1} ${top + 24} ${x + 4} ${top + 26} Q ${x - 2} ${top + 32} ${x - 3} ${top + 36}`}
-      fill="none"
-      stroke={fill}
-      strokeWidth={2.2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  );
-};
-
-const RestEighth = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
-  // Eighth rest: dot + diagonal line
-  const centerY = STAFF_CENTER_Y;
+const RestQuarter = ({ x, fill }: { x: number; fill: string }) => {
+  const t = STAFF_TOP + 4;
   return (
     <g>
-      <circle cx={x + 2} cy={centerY - 6} r={2.5} fill={fill} />
-      <line x1={x + 2} y1={centerY - 4} x2={x - 3} y2={centerY + 12} stroke={fill} strokeWidth={1.8} strokeLinecap="round" />
+      {/* upper thick band */}
+      <path
+        d={`M ${x - 3.2} ${t} L ${x + 3.6} ${t + 8.5}`}
+        stroke={fill}
+        strokeWidth={5}
+        strokeLinecap="butt"
+        fill="none"
+      />
+      {/* thin reverse diagonal */}
+      <path
+        d={`M ${x + 3.6} ${t + 8.5} L ${x - 2.4} ${t + 14.5}`}
+        stroke={fill}
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        fill="none"
+      />
+      {/* lower thick band */}
+      <path
+        d={`M ${x - 2.4} ${t + 14.5} L ${x + 3.8} ${t + 22}`}
+        stroke={fill}
+        strokeWidth={5}
+        strokeLinecap="butt"
+        fill="none"
+      />
+      {/* hook curl */}
+      <path
+        d={`M ${x + 3.8} ${t + 22}
+            C ${x - 4.6} ${t + 19}, ${x - 5.4} ${t + 26.5}, ${x - 0.6} ${t + 29}
+            C ${x + 1.6} ${t + 30}, ${x + 3} ${t + 29.6}, ${x + 3.4} ${t + 28.8}`}
+        stroke={fill}
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        fill="none"
+      />
     </g>
   );
 };
 
-const RestSixteenth = ({ x, y, fill }: { x: number; y: number; fill: string }) => {
-  // Sixteenth rest: two dots + diagonal line
-  const centerY = STAFF_CENTER_Y;
+const RestEighth = ({ x, fill }: { x: number; fill: string }) => {
+  const top = STAFF_CENTER_Y - 7;
+  const bottom = STAFF_CENTER_Y + 11;
   return (
     <g>
-      <circle cx={x + 2} cy={centerY - 10} r={2.5} fill={fill} />
-      <circle cx={x + 4} cy={centerY - 2} r={2.5} fill={fill} />
-      <line x1={x + 4} y1={centerY} x2={x - 3} y2={centerY + 14} stroke={fill} strokeWidth={1.8} strokeLinecap="round" />
+      <line
+        x1={x + 3.6}
+        y1={top}
+        x2={x - 2.2}
+        y2={bottom}
+        stroke={fill}
+        strokeWidth={2.1}
+        strokeLinecap="round"
+      />
+      <path
+        d={`M ${x + 3.6} ${top} Q ${x + 0.4} ${top + 5.4} ${x - 3.4} ${top + 3.2}`}
+        stroke={fill}
+        strokeWidth={1.6}
+        fill="none"
+      />
+      <circle cx={x - 3.2} cy={top + 1.4} r={3} fill={fill} />
+    </g>
+  );
+};
+
+const RestSixteenth = ({ x, fill }: { x: number; fill: string }) => {
+  const top = STAFF_CENTER_Y - 8;
+  const bottom = STAFF_CENTER_Y + 14;
+  return (
+    <g>
+      <line
+        x1={x + 4.2}
+        y1={top}
+        x2={x - 3}
+        y2={bottom}
+        stroke={fill}
+        strokeWidth={2.1}
+        strokeLinecap="round"
+      />
+      <path
+        d={`M ${x + 4.2} ${top} Q ${x + 1} ${top + 5.4} ${x - 2.8} ${top + 3.2}`}
+        stroke={fill}
+        strokeWidth={1.6}
+        fill="none"
+      />
+      <circle cx={x - 2.6} cy={top + 1.4} r={3} fill={fill} />
+      <path
+        d={`M ${x + 0.8} ${top + 10.5} Q ${x - 2.4} ${top + 15.9} ${x - 6.2} ${top + 13.7}`}
+        stroke={fill}
+        strokeWidth={1.6}
+        fill="none"
+      />
+      <circle cx={x - 6} cy={top + 11.9} r={3} fill={fill} />
     </g>
   );
 };
@@ -536,6 +600,18 @@ export default function StaffPreview({
           );
         })}
 
+        {measureStartXs.slice(0, measureCount).map((x, i) => (
+          <text
+            key={`measure-number-${i}`}
+            x={x + 4}
+            y={STAFF_TOP - 26}
+            fontSize={9}
+            fill="#9aa3b2"
+          >
+            {i + 1}
+          </text>
+        ))}
+
         {showBarLines &&
           Array.from({ length: measureCount + 1 }, (_, measureIndex) => {
             const x = measureStartXs[measureIndex] ?? width;
@@ -612,7 +688,7 @@ export default function StaffPreview({
               : RestSixteenth;
             return (
               <g key={`rest-${event.measureIndex}-${event.step}`}>
-                <RestComponent x={rest.x} y={rest.y} fill={fill} />
+                <RestComponent x={rest.x} fill={fill} />
                 {event.dot && (
                   <circle cx={rest.x + 10} cy={STAFF_CENTER_Y} r={2} fill={fill} />
                 )}
