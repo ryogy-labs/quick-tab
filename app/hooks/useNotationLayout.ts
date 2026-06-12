@@ -10,8 +10,9 @@ import {
   eventsToGrid,
   findEventAtStep,
   getCellFret,
+  getEventOccupiedSteps,
   getMeasureDisplaySteps,
-  getVisibleStepsForMeasure,
+  getVisibleStepsForEvents,
   isMeasureOverflowing,
   isStepBlockedForNewStart,
 } from "../tabModel";
@@ -86,7 +87,8 @@ export function useNotationLayout({
   const blockedStepsByMeasure = useMemo(
     () =>
       tabData.measures.map((measure) => {
-        const visibleSteps = getVisibleStepsForMeasure(
+        const visibleSteps = getVisibleStepsForEvents(
+          measure.events,
           getMeasureDisplaySteps(measure.events, displayUnit, measureTicks),
           displayUnit
         );
@@ -126,10 +128,49 @@ export function useNotationLayout({
   );
   const measureVisibleStepsByMeasure = useMemo(
     () =>
-      measureDisplayStepsByMeasure.map((displaySteps) =>
-        getVisibleStepsForMeasure(displaySteps, displayUnit)
+      measureDisplayStepsByMeasure.map((displaySteps, measureIndex) =>
+        getVisibleStepsForEvents(
+          tabData.measures[measureIndex]?.events ?? [],
+          displaySteps,
+          displayUnit
+        )
       ),
-    [displayUnit, measureDisplayStepsByMeasure]
+    [displayUnit, measureDisplayStepsByMeasure, tabData.measures]
+  );
+
+  // Proportional spacing: an event slot's width grows sub-linearly with its
+  // duration; empty grid slots stay at the base step width.
+  const slotWidthsByMeasure = useMemo(
+    () =>
+      measureVisibleStepsByMeasure.map((visibleSteps, measureIndex) => {
+        const events = tabData.measures[measureIndex]?.events ?? [];
+        return visibleSteps.map((step) => {
+          const event = findEventAtStep(events, step);
+          if (!event || event.step !== step) {
+            return stepWidth;
+          }
+          const units = Math.max(1, getEventOccupiedSteps(event)) / displayUnit;
+          return Math.max(stepWidth * 0.8, stepWidth * Math.pow(units, 0.62));
+        });
+      }),
+    [displayUnit, measureVisibleStepsByMeasure, stepWidth, tabData.measures]
+  );
+  const slotOffsetsByMeasure = useMemo(
+    () =>
+      slotWidthsByMeasure.map((widths) => {
+        const offsets: number[] = [];
+        let cursor = 0;
+        widths.forEach((width) => {
+          offsets.push(cursor);
+          cursor += width;
+        });
+        return offsets;
+      }),
+    [slotWidthsByMeasure]
+  );
+  const measureWidthsByMeasure = useMemo(
+    () => slotWidthsByMeasure.map((widths) => widths.reduce((sum, w) => sum + w, 0)),
+    [slotWidthsByMeasure]
   );
   const measureDisplaySlotsByMeasure = useMemo(
     () => measureVisibleStepsByMeasure.map((steps) => steps.length),
@@ -173,6 +214,9 @@ export function useNotationLayout({
 
   return {
     measureTicks,
+    slotWidthsByMeasure,
+    slotOffsetsByMeasure,
+    measureWidthsByMeasure,
     selectedMeasureIndex,
     events,
     selectedEvent,
@@ -219,8 +263,8 @@ export type SystemLayout = {
  * overflowing measure wider than the viewport gets its own row.
  */
 export const computeSystems = (
+  measureWidths: number[],
   slotsByMeasure: number[],
-  stepWidth: number,
   labelWidth: number,
   availableWidth: number
 ): SystemLayout[] => {
@@ -236,9 +280,8 @@ export const computeSystems = (
     let cursor = labelWidth;
     let slotCount = 0;
     current.forEach((measureIndex) => {
-      const slots = slotsByMeasure[measureIndex] ?? 0;
-      cursor += slots * stepWidth;
-      slotCount += slots;
+      cursor += measureWidths[measureIndex] ?? 0;
+      slotCount += slotsByMeasure[measureIndex] ?? 0;
       startXs.push(cursor);
     });
     systems.push({ measureIndices: current, startXs, width: cursor, slotCount });
@@ -246,8 +289,7 @@ export const computeSystems = (
     currentWidth = 0;
   };
 
-  slotsByMeasure.forEach((slots, measureIndex) => {
-    const measureWidth = slots * stepWidth;
+  measureWidths.forEach((measureWidth, measureIndex) => {
     if (current.length > 0 && labelWidth + currentWidth + measureWidth > availableWidth) {
       flush();
     }

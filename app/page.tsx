@@ -108,6 +108,9 @@ export default function Home() {
   });
   const {
     measureTicks,
+    slotWidthsByMeasure,
+    slotOffsetsByMeasure,
+    measureWidthsByMeasure,
     selectedMeasureIndex,
     events,
     selectedEvent,
@@ -461,13 +464,14 @@ export default function Home() {
         ? notationContainerWidth / notationScale - padding
         : fallbackWidth;
     return computeSystems(
+      measureWidthsByMeasure,
       measureDisplaySlotsByMeasure,
-      stepWidth,
       tabLabelWidth,
       availableWidth
     );
   }, [
     measureDisplaySlotsByMeasure,
+    measureWidthsByMeasure,
     notationContainerWidth,
     notationScale,
     stepWidth,
@@ -769,7 +773,19 @@ export default function Home() {
                   cursorLocalMeasure >= 0 && playCursor !== null
                     ? { measureIndex: cursorLocalMeasure, stepIndex: playCursor.stepIndex }
                     : null;
-                const rowTemplate = `${tabLabelWidth}px repeat(${system.slotCount}, ${stepWidth}px)`;
+                const rowTemplate = `${tabLabelWidth}px ${system.measureIndices
+                  .flatMap((measureIndex) => slotWidthsByMeasure[measureIndex] ?? [])
+                  .map((width) => `${width}px`)
+                  .join(" ")}`;
+                const systemSlots = system.measureIndices.map((measureIndex, localIndex) =>
+                  (measureVisibleStepsByMeasure[measureIndex] ?? []).map((step, slotIndex) => ({
+                    step,
+                    x:
+                      (system.startXs[localIndex] ?? tabLabelWidth) +
+                      (slotOffsetsByMeasure[measureIndex]?.[slotIndex] ?? 0),
+                    width: slotWidthsByMeasure[measureIndex]?.[slotIndex] ?? stepWidth,
+                  }))
+                );
                 return (
                   <div
                     key={`system-${systemIndex}`}
@@ -791,6 +807,7 @@ export default function Home() {
                         showBarLines={true}
                         keySignature={tabData.key}
                         firstMeasureNumber={(system.measureIndices[0] ?? 0) + 1}
+                        slotsByMeasure={systemSlots}
                       />
                     </div>
                     <div className={styles.gridSection}>

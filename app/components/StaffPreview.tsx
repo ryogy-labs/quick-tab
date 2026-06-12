@@ -18,6 +18,11 @@ type StaffPreviewProps = {
   keySignature?: KeySignature;
   /** Global number of the first measure, for wrapped multi-system layout. */
   firstMeasureNumber?: number;
+  /**
+   * Proportional-spacing slot tables per measure: absolute x and width per
+   * visible slot. When omitted, slots fall back to the uniform step grid.
+   */
+  slotsByMeasure?: { step: number; x: number; width: number }[][];
 };
 
 type PitchToken = {
@@ -369,12 +374,30 @@ const computeBeamGroups = (renderEvents: EventRender[]): BeamGroupData[] => {
   return allGroups;
 };
 
+type SlotInfo = { step: number; x: number; width: number };
+
+const findSlotForStep = (slots: SlotInfo[] | undefined, step: number): SlotInfo | null => {
+  if (!slots || slots.length === 0) {
+    return null;
+  }
+  let found: SlotInfo | null = null;
+  for (const slot of slots) {
+    if (slot.step <= step) {
+      found = slot;
+    } else {
+      break;
+    }
+  }
+  return found;
+};
+
 const buildRenderEvents = (
   measuresEvents: TabEvent[][],
   measureStartXs: number[],
   stepWidth: number,
   stepUnit: number,
-  keySignature: KeySignature = "C"
+  keySignature: KeySignature = "C",
+  slotsByMeasure?: SlotInfo[][]
 ): EventRender[] => {
   const { flats } = KEY_ACCIDENTAL_COUNTS[keySignature] ?? { sharps: 0, flats: 0 };
   const useFlatSpelling = flats > 0;
@@ -387,7 +410,10 @@ const buildRenderEvents = (
     return sanitizeEvents(events, STEPS_PER_MEASURE, true)
       .map((event) => {
         const measureStartX = measureStartXs[measureIndex] ?? measureStartXs[0] ?? 0;
-        const x = measureStartX + stepWidth * (event.step / stepUnit + 0.5);
+        const slot = findSlotForStep(slotsByMeasure?.[measureIndex], event.step);
+        const x = slot
+          ? slot.x + slot.width / 2
+          : measureStartX + stepWidth * (event.step / stepUnit + 0.5);
 
         if ("rest" in event && event.rest) {
           return {
@@ -477,6 +503,7 @@ export default function StaffPreview({
   showBarLines = true,
   keySignature = "C",
   firstMeasureNumber = 1,
+  slotsByMeasure,
 }: StaffPreviewProps) {
   const measureCount = Math.max(1, measuresEvents.length);
   const width = timelineWidth;
@@ -484,8 +511,16 @@ export default function StaffPreview({
   const labelWidth = measureStartXs[0] ?? 0;
 
   const renderEvents = useMemo(
-    () => buildRenderEvents(measuresEvents, measureStartXs, stepWidth, stepUnit, keySignature),
-    [measuresEvents, measureStartXs, stepWidth, stepUnit, keySignature]
+    () =>
+      buildRenderEvents(
+        measuresEvents,
+        measureStartXs,
+        stepWidth,
+        stepUnit,
+        keySignature,
+        slotsByMeasure
+      ),
+    [measuresEvents, measureStartXs, stepWidth, stepUnit, keySignature, slotsByMeasure]
   );
 
   const beamGroups = useMemo(() => computeBeamGroups(renderEvents), [renderEvents]);
@@ -561,28 +596,42 @@ export default function StaffPreview({
     return map;
   }, [beamGroups]);
 
-  const activeSlot =
-    currentCursor === null
-      ? null
-      : {
-          measureIndex: currentCursor.measureIndex,
-          slotIndex: Math.floor(currentCursor.stepIndex / stepUnit),
-        };
+  const activeSlotRect = (() => {
+    if (currentCursor === null) {
+      return null;
+    }
+    const slot = findSlotForStep(
+      slotsByMeasure?.[currentCursor.measureIndex],
+      currentCursor.stepIndex
+    );
+    if (slot) {
+      return { x: slot.x, width: slot.width };
+    }
+    const slotIndex = Math.floor(currentCursor.stepIndex / stepUnit);
+    if (
+      slotIndex < 0 ||
+      slotIndex >=
+        (measureDisplaySlots[currentCursor.measureIndex] ??
+          Math.ceil(STEPS_PER_MEASURE / stepUnit))
+    ) {
+      return null;
+    }
+    return {
+      x: (measureStartXs[currentCursor.measureIndex] ?? labelWidth) + stepWidth * slotIndex,
+      width: stepWidth,
+    };
+  })();
 
   return (
     <section className={styles.staffBlock}>
       <svg className={styles.canvas} width={width} height={viewBoxHeight} viewBox={`0 0 ${width} ${viewBoxHeight}`} preserveAspectRatio="xMinYMin meet">
         <rect x={0} y={0} width={width} height={viewBoxHeight} fill="transparent" />
 
-        {activeSlot !== null &&
-          activeSlot.slotIndex >= 0 &&
-          activeSlot.slotIndex <
-            (measureDisplaySlots[activeSlot.measureIndex] ??
-              Math.ceil(STEPS_PER_MEASURE / stepUnit)) && (
+        {activeSlotRect !== null && (
           <rect
-            x={(measureStartXs[activeSlot.measureIndex] ?? labelWidth) + stepWidth * activeSlot.slotIndex}
+            x={activeSlotRect.x}
             y={10}
-            width={stepWidth}
+            width={activeSlotRect.width}
             height={viewBoxHeight - 20}
             fill="#fff0c688"
           />

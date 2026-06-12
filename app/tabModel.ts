@@ -234,6 +234,48 @@ export const getVisibleStepsForMeasure = (
   return Array.from({ length: slotCount }, (_, index) => index * safeDisplayUnit);
 };
 
+/**
+ * Visible input slots for proportional spacing: one slot per event start,
+ * plus unit-grid positions in empty regions. Covered (blocked) ticks inside
+ * an event's duration produce no slot of their own.
+ */
+export const getVisibleStepsForEvents = (
+  events: TabEvent[],
+  displaySteps: number,
+  displayUnit: number
+): number[] => {
+  const unit = Math.max(1, Math.trunc(displayUnit));
+  const sorted = sanitizeEvents(events, displaySteps, true)
+    .filter((event) => event.step < displaySteps)
+    .sort((a, b) => a.step - b.step);
+
+  const steps: number[] = [];
+  let cursor = 0;
+
+  sorted.forEach((event) => {
+    while (cursor < event.step) {
+      steps.push(cursor);
+      const misalignment = cursor % unit;
+      cursor += misalignment === 0 ? unit : unit - misalignment;
+      if (cursor > event.step) {
+        cursor = event.step;
+      }
+    }
+    if (steps[steps.length - 1] !== event.step) {
+      steps.push(event.step);
+    }
+    cursor = event.step + Math.max(1, getEventOccupiedSteps(event));
+  });
+
+  while (cursor < displaySteps) {
+    steps.push(cursor);
+    const misalignment = cursor % unit;
+    cursor += misalignment === 0 ? unit : unit - misalignment;
+  }
+
+  return steps.length > 0 ? steps : [0];
+};
+
 export const DURATION_OPTIONS: DurationOption[] = [
   { label: "1/16", len: 6, isRest: false },
   { label: "1/8", len: 12, isRest: false },
