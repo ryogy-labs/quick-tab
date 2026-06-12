@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import styles from "./StaffPreview.module.css";
-import { KEY_ACCIDENTAL_COUNTS, KeySignature, OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TECHNIQUE_GLYPHS, TabEvent, Technique, sanitizeEvents } from "../tabModel";
+import { KEY_ACCIDENTAL_COUNTS, KeySignature, OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TECHNIQUE_GLYPHS, TICKS_PER_QUARTER, TabEvent, Technique, sanitizeEvents } from "../tabModel";
 
 type StaffPreviewProps = {
   measuresEvents: TabEvent[][];
@@ -53,7 +53,7 @@ type EventRender = {
 };
 
 type DurationToken = "w" | "h" | "q" | "8" | "16";
-type SupportedLen = 6 | 12 | 24 | 48 | 96;
+type SupportedLen = number;
 
 const STAFF_LINE_GAP = 12;
 export const STAFF_TOP = 76;
@@ -73,7 +73,7 @@ const KEY_SIG_FONT_SIZE = 15;
 
 const BEAM_THICKNESS = 4;
 const BEAM_GAP = 6;
-const BEAT_STEPS = 24;
+const BEAT_STEPS = TICKS_PER_QUARTER;
 
 export const STAFF_BOTTOM = STAFF_TOP + STAFF_LINE_GAP * (STAFF_LINES - 1);
 const STAFF_CENTER_Y = (STAFF_TOP + STAFF_BOTTOM) / 2;
@@ -157,14 +157,20 @@ const midiToStaffY = (midi: number, useFlatSpelling: boolean): { y: number; acci
 };
 
 const DURATIONS_BY_LEN: Record<SupportedLen, DurationToken> = {
-  6: "16",
-  12: "8",
-  24: "q",
-  48: "h",
-  96: "w",
+  [TICKS_PER_QUARTER / 4]: "16",
+  [TICKS_PER_QUARTER / 2]: "8",
+  [TICKS_PER_QUARTER]: "q",
+  [TICKS_PER_QUARTER * 2]: "h",
+  [TICKS_PER_QUARTER * 4]: "w",
 };
 
-const SUPPORTED_LENS: SupportedLen[] = [6, 12, 24, 48, 96];
+const SUPPORTED_LENS: SupportedLen[] = [
+  TICKS_PER_QUARTER / 4,
+  TICKS_PER_QUARTER / 2,
+  TICKS_PER_QUARTER,
+  TICKS_PER_QUARTER * 2,
+  TICKS_PER_QUARTER * 4,
+];
 
 export const lenToDuration = (len: number): DurationToken | null => {
   if (len in DURATIONS_BY_LEN) {

@@ -1,6 +1,11 @@
 // Canonical time resolution. 1 step === 1 tick; a quarter note spans
 // TICKS_PER_QUARTER ticks, so dotted/triplet variants stay integral.
 export const TICKS_PER_QUARTER = 24;
+// Historical resolution of v1-v3 documents. Legacy migration paths must use
+// these literals (not the derived constants) so raising TICKS_PER_QUARTER
+// later rescales old data instead of silently misreading it.
+const LEGACY_TPQ = 24;
+const LEGACY_STEPS_PER_MEASURE = LEGACY_TPQ * 4;
 // 4/4 measure capacity, kept as the default for legacy (v3) call paths.
 export const STEPS_PER_MEASURE = TICKS_PER_QUARTER * 4;
 export const STRINGS_COUNT = 6;
@@ -192,13 +197,13 @@ type PlacementOptions = {
   ignoreStep?: number;
 };
 
-// Flick gesture: vertical level (-2..+2) to step-based len
+// Flick gesture: vertical level (-2..+2) to note length in ticks
 export const FLICK_DURATION_MAP: Record<number, number> = {
-  [-2]: 6,   // ↑↑ 16th note
-  [-1]: 12,  // ↑  8th note
-  [0]: 24,   // tap quarter note
-  [1]: 48,   // ↓  half note
-  [2]: 96,   // ↓↓ whole note
+  [-2]: TICKS_PER_QUARTER / 4, // ↑↑ 16th note
+  [-1]: TICKS_PER_QUARTER / 2, // ↑  8th note
+  [0]: TICKS_PER_QUARTER,      // tap quarter note
+  [1]: TICKS_PER_QUARTER * 2,  // ↓  half note
+  [2]: TICKS_PER_QUARTER * 4,  // ↓↓ whole note
 };
 
 export const getPlaybackDuration = (event: TabEvent): number => {
@@ -208,8 +213,8 @@ export const getPlaybackDuration = (event: TabEvent): number => {
 };
 
 /**
- * Effective occupied steps for an event, including dotted / triplet modifiers.
- * The 96-step grid keeps these values integral.
+ * Effective occupied ticks for an event, including dotted / triplet
+ * modifiers. TICKS_PER_QUARTER is chosen so these stay integral.
  */
 export const getEventOccupiedSteps = (event: TabEvent): number => {
   if (event.dot) return Math.round(event.len * 1.5);
@@ -299,12 +304,12 @@ export const getVisibleStepsForEvents = (
 };
 
 export const DURATION_OPTIONS: DurationOption[] = [
-  { label: "1/16", len: 6, isRest: false },
-  { label: "1/8", len: 12, isRest: false },
-  { label: "1/4", len: 24, isRest: false },
-  { label: "1/2", len: 48, isRest: false },
-  { label: "1", len: 96, isRest: false },
-  { label: "Rest", len: 6, isRest: true },
+  { label: "1/16", len: TICKS_PER_QUARTER / 4, isRest: false },
+  { label: "1/8", len: TICKS_PER_QUARTER / 2, isRest: false },
+  { label: "1/4", len: TICKS_PER_QUARTER, isRest: false },
+  { label: "1/2", len: TICKS_PER_QUARTER * 2, isRest: false },
+  { label: "1", len: TICKS_PER_QUARTER * 4, isRest: false },
+  { label: "Rest", len: TICKS_PER_QUARTER / 4, isRest: true },
 ];
 
 export const createEmptyTrack = (name = "Guitar"): TabTrack => ({
@@ -387,7 +392,7 @@ export const sanitizeTabDataV3 = (
       ? data.measures.map((measure) => ({
           events: sanitizeEvents(
             measure?.events ?? [],
-            STEPS_PER_MEASURE,
+            LEGACY_STEPS_PER_MEASURE,
             allowOverflow
           ),
         }))
@@ -395,24 +400,34 @@ export const sanitizeTabDataV3 = (
   return {
     ...data,
     version: "v3",
-    stepsPerMeasure: STEPS_PER_MEASURE,
+    stepsPerMeasure: LEGACY_STEPS_PER_MEASURE,
     measures: sanitizedMeasures,
   };
 };
 
-/** v3 -> v4: tick semantics are identical (1 step = 1 tick, TPQ = 24). */
-export const migrateV3ToV4 = (v3: TabDataV3): TabDataV4 => ({
-  version: "v4",
-  tempo: clampTempo(v3.tempo),
-  timeSig: "4/4",
-  key: v3.key ?? "C",
-  ticksPerQuarter: TICKS_PER_QUARTER,
-  tuning: v3.tuning,
-  measures: v3.measures,
-});
+/** v3 -> v4: v3 steps are 24-TPQ ticks; rescale into the canonical TPQ. */
+export const migrateV3ToV4 = (v3: TabDataV3): TabDataV4 => {
+  const scale = TICKS_PER_QUARTER / LEGACY_TPQ;
+  return {
+    version: "v4",
+    tempo: clampTempo(v3.tempo),
+    timeSig: "4/4",
+    key: v3.key ?? "C",
+    ticksPerQuarter: TICKS_PER_QUARTER,
+    tuning: v3.tuning,
+    measures: v3.measures.map((measure) => ({
+      events: measure.events.map((event) => ({
+        ...event,
+        step: Math.round(event.step * scale),
+        len: Math.round(event.len * scale),
+      })),
+    })),
+  };
+};
 
 export const migrateV2ToV3 = (v2: TabDataV2): TabDataV3 => {
-  const multiplier = v2.stepsPerMeasure === STEPS_PER_MEASURE ? 1 : 6;
+  // v2 used either a 16-slot grid (16th steps) or the 96-tick grid.
+  const multiplier = v2.stepsPerMeasure === LEGACY_STEPS_PER_MEASURE ? 1 : LEGACY_TPQ / 4;
   return sanitizeTabDataV3({
     version: "v3",
     tempo: clampTempo(v2.tempo),
@@ -1231,7 +1246,7 @@ export const normalizeToTabDataV3 = (
         return {
           events: sanitizeEvents(
             typed.events as TabEvent[],
-            STEPS_PER_MEASURE,
+            LEGACY_STEPS_PER_MEASURE,
             allowOverflow
           ),
         };
@@ -1253,7 +1268,7 @@ export const normalizeToTabDataV3 = (
       tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
       timeSig: "4/4",
       key,
-      stepsPerMeasure: STEPS_PER_MEASURE,
+      stepsPerMeasure: LEGACY_STEPS_PER_MEASURE,
       tuning:
         Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
@@ -1323,7 +1338,7 @@ export const normalizeToTabDataV3 = (
       });
 
       if (notes.length > 0) {
-        events.push({ step: stepIndex * 6, len: 6, notes });
+        events.push({ step: stepIndex * (LEGACY_TPQ / 4), len: LEGACY_TPQ / 4, notes });
       }
     });
 
@@ -1331,12 +1346,12 @@ export const normalizeToTabDataV3 = (
       version: "v3",
       tempo,
       timeSig: "4/4",
-      stepsPerMeasure: STEPS_PER_MEASURE,
+      stepsPerMeasure: LEGACY_STEPS_PER_MEASURE,
       tuning:
         Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
           ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
           : [...TUNING],
-      measures: [{ events: sanitizeEvents(events, STEPS_PER_MEASURE) }],
+      measures: [{ events: sanitizeEvents(events, LEGACY_STEPS_PER_MEASURE) }],
     });
   }
 

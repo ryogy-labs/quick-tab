@@ -82,7 +82,8 @@
 ## Future Time Representation
 - 現行 canonical model は `TabDataV4` の tick-based 表現（`ticksPerQuarter = 24`）。`96 stepsPerMeasure` 固定は撤廃済みで、measure 容量は拍子から導出する
 - イベントのフィールド名は `step` / `len` のまま tick 値として扱う。`startTick` / `durationTick` への改名は外部形式 adapter 整備時に再検討する
-- より細かい分解能（例: 480 TPQ）への引き上げは、複雑な tuplet 対応が必要になった時点で normalize のリスケール経路を使って行う
+- より細かい分解能への引き上げ先は **960 TPQ**（GP の内部分解能と一致、5連符まで整数）とし、複雑な tuplet 対応または細かい音価の入力 UI が必要になった時点で行う
+- 音価系の定数（フリック音価、DURATION_OPTIONS、譜面の音価マップ、MusicXML の type/休符分解）はすべて `TICKS_PER_QUARTER` からの派生で定義する。v1〜v3 のレガシー移行経路だけは歴史的な 24 TPQ のリテラル（`LEGACY_TPQ`）を使い、移行時に現行 TPQ へリスケールする。これにより TPQ の引き上げは定数1箇所の変更で完結する（残課題は再生の per-tick タイマーのスケジューラ化のみ）
 - `dot` / `triplet` は将来的には長さ計算の正本ではなく、入力補助または表示補助メタデータとして扱う余地を残す
 - UI 上の 16 分単位グリッド、フリック入力、選択セルの挙動は直ちに廃止せず、内部 canonical model と表示スロットの変換層を介して段階的に移行する
 - 互換機能を追加する場合も、外部形式を直接 UI に接続せず、`canonical model <-> format adapter` の境界を維持する
