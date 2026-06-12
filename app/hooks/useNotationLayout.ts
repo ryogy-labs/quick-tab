@@ -201,3 +201,62 @@ export function useNotationLayout({
 }
 
 export type NotationLayout = ReturnType<typeof useNotationLayout>;
+
+export type SystemLayout = {
+  /** Global measure indices contained in this system (row). */
+  measureIndices: number[];
+  /** X positions of measure starts, plus the trailing end X. */
+  startXs: number[];
+  /** Total system width including the leading label area. */
+  width: number;
+  /** Total number of visible slots across the system's measures. */
+  slotCount: number;
+};
+
+/**
+ * Greedily pack measures into systems (wrapped rows) that fit within
+ * availableWidth. A system always holds at least one measure, so an
+ * overflowing measure wider than the viewport gets its own row.
+ */
+export const computeSystems = (
+  slotsByMeasure: number[],
+  stepWidth: number,
+  labelWidth: number,
+  availableWidth: number
+): SystemLayout[] => {
+  const systems: SystemLayout[] = [];
+  let current: number[] = [];
+  let currentWidth = 0;
+
+  const flush = () => {
+    if (current.length === 0) {
+      return;
+    }
+    const startXs = [labelWidth];
+    let cursor = labelWidth;
+    let slotCount = 0;
+    current.forEach((measureIndex) => {
+      const slots = slotsByMeasure[measureIndex] ?? 0;
+      cursor += slots * stepWidth;
+      slotCount += slots;
+      startXs.push(cursor);
+    });
+    systems.push({ measureIndices: current, startXs, width: cursor, slotCount });
+    current = [];
+    currentWidth = 0;
+  };
+
+  slotsByMeasure.forEach((slots, measureIndex) => {
+    const measureWidth = slots * stepWidth;
+    if (current.length > 0 && labelWidth + currentWidth + measureWidth > availableWidth) {
+      flush();
+    }
+    current.push(measureIndex);
+    currentWidth += measureWidth;
+  });
+  flush();
+
+  return systems.length > 0
+    ? systems
+    : [{ measureIndices: [0], startXs: [labelWidth, labelWidth], width: labelWidth, slotCount: 0 }];
+};
