@@ -27,6 +27,17 @@ export const OPEN_STRING_MIDI_BY_STRING = [64, 59, 55, 50, 45, 40];
 
 export type Technique = "slide" | "hammer" | "pulloff" | "bend" | "vibrato";
 
+export const TECHNIQUES: Technique[] = ["slide", "hammer", "pulloff", "bend", "vibrato"];
+
+/** Short glyphs used in the TAB grid and staff preview. */
+export const TECHNIQUE_GLYPHS: Record<Technique, string> = {
+  slide: "s",
+  hammer: "h",
+  pulloff: "p",
+  bend: "b",
+  vibrato: "~",
+};
+
 export type TabNoteEventNote = {
   string: number;
   fret: number;
@@ -987,6 +998,46 @@ export const setTieAtStep = (
       fret: note.fret,
       ...(note.technique ? { technique: note.technique } : {}),
       ...(tied ? { tie: true } : {}),
+    };
+  });
+
+  next.push({
+    step: existing.step,
+    len: existing.len,
+    notes,
+    ...(existing.dot ? { dot: true } : {}),
+    ...(existing.triplet ? { triplet: true } : {}),
+  });
+  return sanitizeEvents(next, stepLimit, true);
+};
+
+export const setTechniqueAtStep = (
+  events: TabEvent[],
+  stepIndex: number,
+  stringNumber: number,
+  technique: Technique | null,
+  stepLimit = STEPS_PER_MEASURE
+): TabEvent[] => {
+  const safeStep = clampStep(stepIndex, stepLimit);
+  const safeString = clampInt(stringNumber, 1, STRINGS_COUNT);
+  const existing = findEventAtStep(events, safeStep);
+
+  if (!existing || ("rest" in existing && existing.rest)) {
+    return sanitizeEvents(events, stepLimit, true);
+  }
+
+  const next = sanitizeEvents(events, stepLimit, true).filter(
+    (event) => event.step !== safeStep
+  );
+  const notes = existing.notes.map((note) => {
+    if (note.string !== safeString) {
+      return note;
+    }
+    return {
+      string: note.string,
+      fret: note.fret,
+      ...(technique ? { technique } : {}),
+      ...(note.tie ? { tie: true } : {}),
     };
   });
 

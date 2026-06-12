@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import styles from "./StaffPreview.module.css";
-import { KEY_ACCIDENTAL_COUNTS, KeySignature, OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TabEvent, sanitizeEvents } from "../tabModel";
+import { KEY_ACCIDENTAL_COUNTS, KeySignature, OPEN_STRING_MIDI_BY_STRING, STEPS_PER_MEASURE, TECHNIQUE_GLYPHS, TabEvent, Technique, sanitizeEvents } from "../tabModel";
 
 type StaffPreviewProps = {
   measuresEvents: TabEvent[][];
@@ -31,6 +31,7 @@ type NoteRender = {
   string?: number;
   fret?: number;
   tie?: boolean;
+  technique?: Technique;
   accidental: "#" | "b" | "";
 };
 
@@ -359,6 +360,7 @@ const buildRenderEvents = (
               string: note.string,
               fret: note.fret,
               ...(note.tie ? { tie: true } : {}),
+              ...(note.technique ? { technique: note.technique } : {}),
               accidental,
             });
             return acc;
@@ -679,6 +681,23 @@ export default function StaffPreview({
                   />
                 </g>
               ))}
+              {(() => {
+                const technique = event.notes.find((note) => note.technique)?.technique;
+                if (!technique) return null;
+                const topY = Math.min(...event.notes.map((note) => note.y), STAFF_TOP);
+                return (
+                  <text
+                    x={event.notes[0].x}
+                    y={topY - (event.triplet ? 18 : 8)}
+                    fontSize={10}
+                    fontWeight={700}
+                    textAnchor="middle"
+                    fill={isActive ? "#b34700" : "#3a5a40"}
+                  >
+                    {TECHNIQUE_GLYPHS[technique].toUpperCase()}
+                  </text>
+                );
+              })()}
               {needStem && (
                 <line
                   x1={stemX}

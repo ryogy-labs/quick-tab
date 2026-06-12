@@ -6,6 +6,7 @@ import StaffPreview from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
+import TechniquePalette from "./components/TechniquePalette";
 import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import { useTabStorage } from "./hooks/useTabStorage";
 import { useUndoRedo } from "./hooks/useUndoRedo";
@@ -23,6 +24,7 @@ import {
   KEY_SIGNATURES,
   KeySignature,
   SIXTEENTH_STEPS,
+  TECHNIQUE_GLYPHS,
   TIME_SIGNATURES,
   TimeSignature,
   sanitizeTabData,
@@ -259,6 +261,7 @@ export default function Home() {
     handleDelete,
     handleDeleteEvent,
     handleToggleTie,
+    handleSetTechnique,
   } = useTabEditing({
     tabData,
     commitTabData,
@@ -693,6 +696,12 @@ export default function Home() {
             Tie
           </button>
 
+          <TechniquePalette
+            activeTechnique={selectedNote?.technique}
+            disabled={isPlaying || !selectedNote}
+            onSelect={handleSetTechnique}
+          />
+
           <DropdownMenu items={menuItems} />
         </div>
 
@@ -770,15 +779,17 @@ export default function Home() {
                       const measureEvents = getMeasureEvents(tabData, measureIndex);
                       const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
                       const cellEvent = findEventAtStep(measureEvents, stepIndex);
-                      const hasTie =
+                      const cellNote =
                         cellEvent && !("rest" in cellEvent && cellEvent.rest)
-                          ? cellEvent.notes.some((note) => note.string === rowIndex + 1 && note.tie)
-                          : false;
+                          ? cellEvent.notes.find((note) => note.string === rowIndex + 1)
+                          : undefined;
+                      const hasTie = cellNote?.tie === true;
+                      const techniqueGlyph = cellNote?.technique
+                        ? TECHNIQUE_GLYPHS[cellNote.technique]
+                        : "";
                       const displayValue =
                         cell?.fret !== null && cell?.fret !== undefined
-                          ? hasTie
-                            ? `(${cell.fret})`
-                            : String(cell.fret)
+                          ? `${hasTie ? `(${cell.fret})` : String(cell.fret)}${techniqueGlyph}`
                           : "";
                       const hasDisplayValue = displayValue !== "";
                       const isSelected =
