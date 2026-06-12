@@ -8,6 +8,7 @@ import {
   StepRangeSelection,
   TabData,
   TabMeasureV3,
+  appendEmptyMeasure,
   copyMeasure,
   deleteMeasure,
   duplicateMeasure,
@@ -21,6 +22,7 @@ import {
 
 type UseMeasureOpsParams = {
   tabData: TabData;
+  trackIndex: number;
   commitTabData: (data: TabData) => void;
   isPlaying: boolean;
   selected: CellPosition;
@@ -40,6 +42,7 @@ type UseMeasureOpsParams = {
  */
 export function useMeasureOps({
   tabData,
+  trackIndex,
   commitTabData,
   isPlaying,
   selected,
@@ -75,10 +78,7 @@ export function useMeasureOps({
     }
 
     if (selectedMeasureIndex >= totalMeasures - 1) {
-      commitTabData({
-        ...tabData,
-        measures: [...tabData.measures, { events: [] }],
-      });
+      commitTabData(appendEmptyMeasure(tabData));
       setSelected((prev) => ({
         ...prev,
         measureIndex: totalMeasures,
@@ -104,10 +104,7 @@ export function useMeasureOps({
       return;
     }
     const nextMeasureIndex = totalMeasures;
-    commitTabData({
-      ...tabData,
-      measures: [...tabData.measures, { events: [] }],
-    });
+    commitTabData(appendEmptyMeasure(tabData));
     setSelected({
       measureIndex: nextMeasureIndex,
       rowIndex: 0,
@@ -158,7 +155,7 @@ export function useMeasureOps({
   };
 
   const handleCopyMeasure = () => {
-    setMeasureClipboard(copyMeasure(tabData, selectedMeasureIndex));
+    setMeasureClipboard(copyMeasure(tabData, trackIndex, selectedMeasureIndex));
   };
 
   const handlePasteMeasure = () => {
@@ -166,14 +163,14 @@ export function useMeasureOps({
       return;
     }
 
-    commitTabData(pasteMeasure(tabData, selectedMeasureIndex, measureClipboard));
+    commitTabData(pasteMeasure(tabData, trackIndex, selectedMeasureIndex, measureClipboard));
   };
 
   const handleCopyRange = () => {
     if (!selectedRange) {
       return;
     }
-    const sourceEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
+    const sourceEvents = getMeasureEvents(tabData, trackIndex, selectedRange.startMeasureIndex);
     setRangeClipboard(extractRangeClipboardFromMeasure(sourceEvents, selectedRange));
   };
 
@@ -184,14 +181,14 @@ export function useMeasureOps({
 
     const targetDisplaySteps =
       measureDisplayStepsByMeasure[selectedMeasureIndex] ?? measureTicks;
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const measureEvents = getMeasureEvents(tabData, trackIndex, selectedMeasureIndex);
     const nextEvents = pasteRangeClipboardIntoMeasure(
       measureEvents,
       selected.stepIndex,
       rangeClipboard,
       targetDisplaySteps
     );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+    commitTabData(updateMeasureEvents(tabData, trackIndex, selectedMeasureIndex, nextEvents));
   };
 
   return {

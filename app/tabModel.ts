@@ -110,12 +110,34 @@ export type TabDataV4 = {
   measures: TabMeasureV3[];
 };
 
+export type TabTrack = {
+  name: string;
+  tuning: string[];
+  measures: TabMeasureV3[];
+};
+
+export type TabDataV5 = {
+  version: "v5";
+  tempo: number;
+  timeSig: TimeSignature;
+  key?: KeySignature;
+  ticksPerQuarter: number;
+  tracks: TabTrack[];
+};
+
 /** Current canonical model. */
-export type TabData = TabDataV4;
+export type TabData = TabDataV5;
 
 /** Measure capacity in ticks for the document's time signature. */
-export const getDataMeasureTicks = (data: TabData): number =>
+export const getDataMeasureTicks = (data: TabData | TabDataV4): number =>
   getMeasureTicks(data.timeSig);
+
+/** All tracks share the same measure count (sanitize enforces this). */
+export const getMeasureCount = (data: TabData): number =>
+  data.tracks[0]?.measures.length ?? 0;
+
+export const getTrackMeasures = (data: TabData, trackIndex: number): TabMeasureV3[] =>
+  data.tracks[trackIndex]?.measures ?? [];
 
 export type TabMeasureV2 = {
   events: TabEvent[];
@@ -285,14 +307,19 @@ export const DURATION_OPTIONS: DurationOption[] = [
   { label: "Rest", len: 6, isRest: true },
 ];
 
+export const createEmptyTrack = (name = "Guitar"): TabTrack => ({
+  name,
+  tuning: [...TUNING],
+  measures: [{ events: [] }],
+});
+
 export const createEmptyTabData = (): TabData => ({
-  version: "v4",
+  version: "v5",
   tempo: 120,
   timeSig: "4/4",
   key: "C",
   ticksPerQuarter: TICKS_PER_QUARTER,
-  tuning: [...TUNING],
-  measures: [{ events: [] }],
+  tracks: [createEmptyTrack()],
 });
 
 export const sanitizeTabData = (
@@ -300,23 +327,55 @@ export const sanitizeTabData = (
   allowOverflow = false
 ): TabData => {
   const measureTicks = getMeasureTicks(data.timeSig);
-  const sanitizedMeasures =
-    data.measures.length > 0
-      ? data.measures.map((measure) => ({
-          events: sanitizeEvents(
-            measure?.events ?? [],
-            measureTicks,
-            allowOverflow
-          ),
-        }))
-      : [{ events: [] }];
+  const tracks = data.tracks.length > 0 ? data.tracks : [createEmptyTrack()];
+  const measureCount = Math.max(
+    1,
+    ...tracks.map((track) => track.measures.length)
+  );
+  const sanitizedTracks = tracks.map((track, index) => {
+    const measures = Array.from({ length: measureCount }, (_, measureIndex) => ({
+      events: sanitizeEvents(
+        track.measures[measureIndex]?.events ?? [],
+        measureTicks,
+        allowOverflow
+      ),
+    }));
+    return {
+      name: typeof track.name === "string" && track.name !== "" ? track.name : `Track ${index + 1}`,
+      tuning:
+        Array.isArray(track.tuning) && track.tuning.length === STRINGS_COUNT
+          ? track.tuning.slice(0, STRINGS_COUNT)
+          : [...TUNING],
+      measures,
+    };
+  });
   return {
     ...data,
-    version: "v4",
+    version: "v5",
     ticksPerQuarter: TICKS_PER_QUARTER,
-    measures: sanitizedMeasures,
+    tracks: sanitizedTracks,
   };
 };
+
+/** v4 -> v5: wrap the single measure list into one track. */
+export const migrateV4ToV5 = (v4: TabDataV4, allowOverflow = false): TabData =>
+  sanitizeTabData(
+    {
+      version: "v5",
+      tempo: clampTempo(v4.tempo),
+      timeSig: v4.timeSig,
+      key: v4.key ?? "C",
+      ticksPerQuarter: TICKS_PER_QUARTER,
+      tracks: [
+        {
+          name: "Guitar",
+          tuning: v4.tuning,
+          measures: v4.measures,
+        },
+      ],
+    },
+    allowOverflow
+  );
 
 /** Legacy v3 sanitize, used only on the migration path. */
 export const sanitizeTabDataV3 = (
@@ -342,19 +401,15 @@ export const sanitizeTabDataV3 = (
 };
 
 /** v3 -> v4: tick semantics are identical (1 step = 1 tick, TPQ = 24). */
-export const migrateV3ToV4 = (v3: TabDataV3, allowOverflow = false): TabData =>
-  sanitizeTabData(
-    {
-      version: "v4",
-      tempo: clampTempo(v3.tempo),
-      timeSig: "4/4",
-      key: v3.key ?? "C",
-      ticksPerQuarter: TICKS_PER_QUARTER,
-      tuning: v3.tuning,
-      measures: v3.measures,
-    },
-    allowOverflow
-  );
+export const migrateV3ToV4 = (v3: TabDataV3): TabDataV4 => ({
+  version: "v4",
+  tempo: clampTempo(v3.tempo),
+  timeSig: "4/4",
+  key: v3.key ?? "C",
+  ticksPerQuarter: TICKS_PER_QUARTER,
+  tuning: v3.tuning,
+  measures: v3.measures,
+});
 
 export const migrateV2ToV3 = (v2: TabDataV2): TabDataV3 => {
   const multiplier = v2.stepsPerMeasure === STEPS_PER_MEASURE ? 1 : 6;
@@ -409,56 +464,75 @@ export const cloneMeasure = (measure: TabMeasureV3): TabMeasureV3 => ({
 
 export const copyMeasure = (
   data: TabData,
+  trackIndex: number,
   measureIndex: number
 ): TabMeasureV3 => {
-  const source = data.measures.at(measureIndex) ?? { events: [] };
+  const source = getTrackMeasures(data, trackIndex).at(measureIndex) ?? { events: [] };
   return cloneMeasure(source);
 };
 
+/** Duplicates the measure at measureIndex in every track (bars are global). */
 export const duplicateMeasure = (
   data: TabData,
   measureIndex: number
 ): TabData => {
-  const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
-  const duplicate = copyMeasure(data, safeIndex);
-  const measures = [...data.measures];
-  measures.splice(safeIndex + 1, 0, duplicate);
-  return sanitizeTabData({ ...data, measures });
+  const safeIndex = clampInt(measureIndex, 0, Math.max(0, getMeasureCount(data) - 1));
+  const tracks = data.tracks.map((track) => {
+    const measures = [...track.measures];
+    measures.splice(safeIndex + 1, 0, cloneMeasure(measures[safeIndex] ?? { events: [] }));
+    return { ...track, measures };
+  });
+  return sanitizeTabData({ ...data, tracks });
 };
 
 export const pasteMeasure = (
   data: TabData,
+  trackIndex: number,
   measureIndex: number,
   source: TabMeasureV3
 ): TabData => {
-  const safeIndex = clampInt(measureIndex, 0, Math.max(0, data.measures.length - 1));
-  const measures = [...data.measures];
-  measures[safeIndex] = cloneMeasure(source);
-  return sanitizeTabData({ ...data, measures });
+  const safeIndex = clampInt(measureIndex, 0, Math.max(0, getMeasureCount(data) - 1));
+  const tracks = data.tracks.map((track, index) => {
+    if (index !== trackIndex) {
+      return track;
+    }
+    const measures = [...track.measures];
+    measures[safeIndex] = cloneMeasure(source);
+    return { ...track, measures };
+  });
+  return sanitizeTabData({ ...data, tracks });
 };
 
+/** Inserts an empty measure at measureIndex in every track. */
 export const insertMeasure = (
   data: TabData,
   measureIndex: number
 ): TabData => {
-  const safeIndex = clampInt(measureIndex, 0, data.measures.length);
-  const measures = [...data.measures];
-  measures.splice(safeIndex, 0, { events: [] });
-  return sanitizeTabData({ ...data, measures });
+  const safeIndex = clampInt(measureIndex, 0, getMeasureCount(data));
+  const tracks = data.tracks.map((track) => {
+    const measures = [...track.measures];
+    measures.splice(safeIndex, 0, { events: [] });
+    return { ...track, measures };
+  });
+  return sanitizeTabData({ ...data, tracks });
 };
 
+/** Deletes the measure at measureIndex from every track. */
 export const deleteMeasure = (
   data: TabData,
   measureIndex: number
 ): TabData => {
-  if (data.measures.length <= 1) {
+  if (getMeasureCount(data) <= 1) {
     return sanitizeTabData(data);
   }
 
-  const safeIndex = clampInt(measureIndex, 0, data.measures.length - 1);
-  const measures = [...data.measures];
-  measures.splice(safeIndex, 1);
-  return sanitizeTabData({ ...data, measures });
+  const safeIndex = clampInt(measureIndex, 0, getMeasureCount(data) - 1);
+  const tracks = data.tracks.map((track) => {
+    const measures = [...track.measures];
+    measures.splice(safeIndex, 1);
+    return { ...track, measures };
+  });
+  return sanitizeTabData({ ...data, tracks });
 };
 
 export const normalizeStepRange = (
@@ -1273,6 +1347,56 @@ export const normalizeToTabDataV3 = (
  * Normalize any known persisted format (v4/v3/v2/v1) into the current
  * canonical TabData. Returns null when the payload is unrecognizable.
  */
+const normalizeRawMeasures = (
+  rawMeasures: unknown,
+  scale: number
+): TabMeasureV3[] | null => {
+  const measures = Array.isArray(rawMeasures) ? rawMeasures : [];
+  if (measures.length === 0) {
+    return null;
+  }
+  const normalized = measures
+    .map((measure) => {
+      const typed = measure as { events?: unknown };
+      if (!Array.isArray(typed.events)) {
+        return null;
+      }
+      const scaled = (typed.events as TabEvent[]).map((event) => ({
+        ...event,
+        step: Math.round(event.step * scale),
+        len: Math.round(event.len * scale),
+      }));
+      return { events: scaled };
+    })
+    .filter((measure): measure is TabMeasureV3 => measure !== null);
+  return normalized.length > 0 ? normalized : null;
+};
+
+const normalizeKey = (rawKey: unknown): KeySignature =>
+  typeof rawKey === "string" && rawKey in KEY_ACCIDENTAL_COUNTS
+    ? (rawKey as KeySignature)
+    : "C";
+
+const normalizeTimeSig = (rawTimeSig: unknown): TimeSignature =>
+  typeof rawTimeSig === "string" && (TIME_SIGNATURES as string[]).includes(rawTimeSig)
+    ? (rawTimeSig as TimeSignature)
+    : "4/4";
+
+const normalizeTpqScale = (rawTpq: unknown): number => {
+  const tpq =
+    typeof rawTpq === "number" && rawTpq > 0 ? Math.trunc(rawTpq) : TICKS_PER_QUARTER;
+  return TICKS_PER_QUARTER / tpq;
+};
+
+const normalizeTuning = (rawTuning: unknown): string[] =>
+  Array.isArray(rawTuning) && rawTuning.length === STRINGS_COUNT
+    ? (rawTuning as string[]).slice(0, STRINGS_COUNT)
+    : [...TUNING];
+
+/**
+ * Normalize any known persisted format (v5/v4/v3/v2/v1) into the current
+ * canonical TabData. Returns null when the payload is unrecognizable.
+ */
 export const normalizeToTabData = (
   raw: unknown,
   allowOverflow = false
@@ -1281,71 +1405,69 @@ export const normalizeToTabData = (
     return null;
   }
 
-  const candidate = raw as RawTabData;
+  const candidate = raw as RawTabData & { tracks?: unknown };
 
-  if (candidate.version === "v4") {
-    const measures = Array.isArray(candidate.measures) ? candidate.measures : [];
-    if (measures.length === 0) {
+  if (candidate.version === "v5") {
+    const rawTracks = Array.isArray(candidate.tracks) ? candidate.tracks : [];
+    if (rawTracks.length === 0) {
       return null;
     }
-
-    const timeSig: TimeSignature =
-      typeof candidate.timeSig === "string" &&
-      (TIME_SIGNATURES as string[]).includes(candidate.timeSig)
-        ? (candidate.timeSig as TimeSignature)
-        : "4/4";
-
-    // Rescale tick values when the payload uses a different resolution.
-    const rawTpq =
-      typeof candidate.ticksPerQuarter === "number" && candidate.ticksPerQuarter > 0
-        ? Math.trunc(candidate.ticksPerQuarter)
-        : TICKS_PER_QUARTER;
-    const scale = TICKS_PER_QUARTER / rawTpq;
-
-    const normalizedMeasures = measures
-      .map((measure) => {
-        const typed = measure as { events?: unknown };
-        if (!Array.isArray(typed.events)) {
+    const scale = normalizeTpqScale(candidate.ticksPerQuarter);
+    const tracks = rawTracks
+      .map((rawTrack, index) => {
+        const typed = rawTrack as { name?: unknown; tuning?: unknown; measures?: unknown };
+        const measures = normalizeRawMeasures(typed.measures, scale);
+        if (!measures) {
           return null;
         }
-        const scaled = (typed.events as TabEvent[]).map((event) => ({
-          ...event,
-          step: Math.round(event.step * scale),
-          len: Math.round(event.len * scale),
-        }));
-        return { events: scaled };
+        return {
+          name: typeof typed.name === "string" && typed.name !== "" ? typed.name : `Track ${index + 1}`,
+          tuning: normalizeTuning(typed.tuning),
+          measures,
+        };
       })
-      .filter((measure): measure is TabMeasureV3 => measure !== null);
+      .filter((track): track is TabTrack => track !== null);
 
-    if (normalizedMeasures.length === 0) {
+    if (tracks.length === 0) {
       return null;
     }
-
-    const rawKey = candidate.key;
-    const key: KeySignature =
-      typeof rawKey === "string" && rawKey in KEY_ACCIDENTAL_COUNTS
-        ? (rawKey as KeySignature)
-        : "C";
 
     return sanitizeTabData(
       {
+        version: "v5",
+        tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
+        timeSig: normalizeTimeSig(candidate.timeSig),
+        key: normalizeKey(candidate.key),
+        ticksPerQuarter: TICKS_PER_QUARTER,
+        tracks,
+      },
+      allowOverflow
+    );
+  }
+
+  if (candidate.version === "v4") {
+    const scale = normalizeTpqScale(candidate.ticksPerQuarter);
+    const measures = normalizeRawMeasures(candidate.measures, scale);
+    if (!measures) {
+      return null;
+    }
+
+    return migrateV4ToV5(
+      {
         version: "v4",
         tempo: clampTempo(typeof candidate.tempo === "number" ? candidate.tempo : 120),
-        timeSig,
-        key,
+        timeSig: normalizeTimeSig(candidate.timeSig),
+        key: normalizeKey(candidate.key),
         ticksPerQuarter: TICKS_PER_QUARTER,
-        tuning:
-          Array.isArray(candidate.tuning) && candidate.tuning.length === STRINGS_COUNT
-            ? (candidate.tuning as string[]).slice(0, STRINGS_COUNT)
-            : [...TUNING],
-        measures: normalizedMeasures,
+        tuning: normalizeTuning(candidate.tuning),
+        measures,
       },
       allowOverflow
     );
   }
 
   const legacy = normalizeToTabDataV3(raw, allowOverflow);
-  return legacy ? migrateV3ToV4(legacy, allowOverflow) : null;
+  return legacy ? migrateV4ToV5(migrateV3ToV4(legacy), allowOverflow) : null;
 };
 
 // --- Sequential mode ---
@@ -1452,26 +1574,42 @@ export type CursorAdvanceResult = {
   didAppendMeasure: boolean;
 };
 
+/** Appends one empty measure to every track. */
 export const appendEmptyMeasure = (data: TabData): TabData => ({
   ...data,
-  measures: [...data.measures, { events: [] }],
+  tracks: data.tracks.map((track) => ({
+    ...track,
+    measures: [...track.measures, { events: [] }],
+  })),
 });
 
-export const getMeasureEvents = (data: TabData, measureIndex: number): TabEvent[] =>
-  data.measures.at(measureIndex)?.events ?? [];
+export const getMeasureEvents = (
+  data: TabData,
+  trackIndex: number,
+  measureIndex: number
+): TabEvent[] => getTrackMeasures(data, trackIndex).at(measureIndex)?.events ?? [];
 
+/** Replaces one measure's events in one track, padding every track so the
+ *  measure-count invariant holds. */
 export const updateMeasureEvents = (
   data: TabData,
+  trackIndex: number,
   measureIndex: number,
   nextEvents: TabEvent[]
 ): TabData => {
   const safeIndex = Math.max(0, measureIndex);
-  const measures = [...data.measures];
-  while (measures.length <= safeIndex) {
-    measures.push({ events: [] });
-  }
-  measures[safeIndex] = { events: nextEvents };
-  return { ...data, measures };
+  const measureCount = Math.max(getMeasureCount(data), safeIndex + 1);
+  const tracks = data.tracks.map((track, index) => {
+    const measures = [...track.measures];
+    while (measures.length < measureCount) {
+      measures.push({ events: [] });
+    }
+    if (index === trackIndex) {
+      measures[safeIndex] = { events: nextEvents };
+    }
+    return { ...track, measures };
+  });
+  return { ...data, tracks };
 };
 
 /**
@@ -1480,6 +1618,7 @@ export const updateMeasureEvents = (
  */
 export const getNextCursorPositionWithAutoAppend = (
   data: TabData,
+  trackIndex: number,
   selected: CellPosition,
   moveAmount: number,
   isPlaying: boolean,
@@ -1488,13 +1627,14 @@ export const getNextCursorPositionWithAutoAppend = (
   const measureTicks = getDataMeasureTicks(data);
   const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
   let nextData = data;
-  let measureIndex = Math.max(0, Math.min(data.measures.length - 1, selected.measureIndex));
+  let measureIndex = Math.max(0, Math.min(getMeasureCount(data) - 1, selected.measureIndex));
   let stepIndex = Math.max(0, selected.stepIndex);
   let remaining = safeMoveAmount;
   let didAppendMeasure = false;
 
   while (remaining > 0) {
-    const measureEvents = nextData.measures.at(measureIndex)?.events ?? [];
+    const measureEvents =
+      getTrackMeasures(nextData, trackIndex).at(measureIndex)?.events ?? [];
     const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit, measureTicks);
     const targetStep = stepIndex + remaining;
 
@@ -1512,7 +1652,7 @@ export const getNextCursorPositionWithAutoAppend = (
 
     remaining = targetStep - displaySteps;
 
-    if (measureIndex < nextData.measures.length - 1) {
+    if (measureIndex < getMeasureCount(nextData) - 1) {
       measureIndex += 1;
       stepIndex = 0;
       continue;
@@ -1553,6 +1693,7 @@ export const getNextCursorPositionWithAutoAppend = (
  */
 export const findPreviousNoteOnString = (
   data: TabData,
+  trackIndex: number,
   measureIndex: number,
   stepIndex: number,
   stringNumber: number,
@@ -1561,7 +1702,7 @@ export const findPreviousNoteOnString = (
   for (let mi = measureIndex; mi >= 0; mi -= 1) {
     const limitStep = mi === measureIndex ? stepIndex : Infinity;
     const previousEvent = sanitizeEvents(
-      getMeasureEvents(data, mi),
+      getMeasureEvents(data, trackIndex, mi),
       displayStepsByMeasure[mi] ?? STEPS_PER_MEASURE,
       true
     )

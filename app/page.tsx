@@ -62,6 +62,9 @@ export default function Home() {
   const [autoShift, setAutoShift] = useState(true);
   const [tieInputMode, setTieInputMode] = useState(false);
 
+  // PR① keeps a single fixed track; the track bar arrives in the next PR.
+  const activeTrackIndex = 0;
+
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 768px)");
@@ -100,6 +103,7 @@ export default function Home() {
 
   const layout = useNotationLayout({
     tabData,
+    trackIndex: activeTrackIndex,
     selected,
     inputLen,
     isRestMode,
@@ -143,6 +147,7 @@ export default function Home() {
 
   const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
     tabData,
+    trackIndex: activeTrackIndex,
     selectedMeasureIndex,
     overflowingMeasureSet,
     onPlaybackEnd: useCallback(() => {
@@ -172,7 +177,7 @@ export default function Home() {
 
   const getRangeSelectableStep = (measureIndex: number, stepIndex: number): number => {
     const clampedStep = getClampedDisplayStep(stepIndex, measureIndex);
-    const measureEvents = getMeasureEvents(tabData, measureIndex);
+    const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
     const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     return findOwningEventStep(measureEvents, clampedStep, displaySteps);
   };
@@ -193,7 +198,7 @@ export default function Home() {
   };
 
   const moveSelection = (next: CellPosition) => {
-    const clampedMeasure = Math.max(0, Math.min(tabData.measures.length - 1, next.measureIndex));
+    const clampedMeasure = Math.max(0, Math.min(totalMeasures - 1, next.measureIndex));
     setSingleCellSelection({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
@@ -232,6 +237,7 @@ export default function Home() {
         selectedEvent && selectedEvent.step === current ? selectedEvent.len : displayUnit;
       const result = getNextCursorPositionWithAutoAppend(
         tabData,
+        activeTrackIndex,
         { ...selected, stepIndex: current },
         advanceAmount,
         isPlaying,
@@ -277,6 +283,7 @@ export default function Home() {
     handleSetTechnique,
   } = useTabEditing({
     tabData,
+    trackIndex: activeTrackIndex,
     commitTabData,
     selected,
     setSelected,
@@ -320,6 +327,7 @@ export default function Home() {
     handlePasteRange,
   } = useMeasureOps({
     tabData,
+    trackIndex: activeTrackIndex,
     commitTabData,
     isPlaying,
     selected,
@@ -462,7 +470,7 @@ export default function Home() {
       return false;
     }
 
-    const measureEvents = getMeasureEvents(tabData, measureIndex);
+    const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
     const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     const owningStep = findOwningEventStep(measureEvents, stepIndex, displaySteps);
     return isStepInRange(selectedRange, measureIndex, owningStep);
@@ -870,7 +878,7 @@ export default function Home() {
                             </div>
                             {system.measureIndices.flatMap((measureIndex) =>
                               (measureVisibleStepsByMeasure[measureIndex] ?? []).map((stepIndex) => {
-                                const measureEvents = getMeasureEvents(tabData, measureIndex);
+                                const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
                                 const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
                                 const cellEvent = findEventAtStep(measureEvents, stepIndex);
                                 const cellNote =
@@ -971,7 +979,7 @@ export default function Home() {
             isPlaying={isPlaying}
             scale={fretboardScale}
             onScaleChange={handleFretboardScaleChange}
-            tuning={tabData.tuning}
+            tuning={tabData.tracks[activeTrackIndex]?.tuning ?? TUNING}
           />
           <div className={styles.restFlickRow}>
             <RestFlickButton

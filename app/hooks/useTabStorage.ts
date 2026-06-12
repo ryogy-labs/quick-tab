@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef } from "react";
 import { TabData, normalizeToTabData } from "../tabModel";
 
-const STORAGE_KEY = "quick-tab:mvp:v4";
+const STORAGE_KEY = "quick-tab:mvp:v5";
+const LEGACY_STORAGE_KEY_V4 = "quick-tab:mvp:v4";
 const LEGACY_STORAGE_KEY_V3 = "quick-tab:mvp:v3";
 const LEGACY_STORAGE_KEY_V2 = "quick-tab:mvp:v2";
 const LEGACY_STORAGE_KEY_V1 = "quick-tab:mvp:v1";
@@ -27,10 +28,11 @@ export function useTabStorage({ tabData, onLoad }: UseTabStorageOptions) {
   const onLoadRef = useRef(onLoad);
   onLoadRef.current = onLoad;
 
-  // Load once on mount, trying v4 → v3 → v2 → v1 in order
+  // Load once on mount, trying v5 → v4 → v3 → v2 → v1 in order
   useEffect(() => {
     const loaded =
       tryLoad(localStorage.getItem(STORAGE_KEY)) ??
+      tryLoad(localStorage.getItem(LEGACY_STORAGE_KEY_V4)) ??
       tryLoad(localStorage.getItem(LEGACY_STORAGE_KEY_V3)) ??
       tryLoad(localStorage.getItem(LEGACY_STORAGE_KEY_V2)) ??
       tryLoad(localStorage.getItem(LEGACY_STORAGE_KEY_V1));

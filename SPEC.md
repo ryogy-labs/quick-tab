@@ -53,11 +53,13 @@
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する。ズームを下げるほど1行に入る measure 数が増える
 
 ## Data Model
-- 永続化される主データは `localStorage` の `quick-tab:mvp:v4` に保存する
-- 旧データ `quick-tab:mvp:v3`, `quick-tab:mvp:v2`, `quick-tab:mvp:v1` が存在する場合は、初回読込時に v4 モデルへ normalize して取り込む
-- TAB データの基本構造は `TabData (= TabDataV4) = { version: "v4", tempo, timeSig, key?, ticksPerQuarter, tuning, measures }`
+- 永続化される主データは `localStorage` の `quick-tab:mvp:v5` に保存する
+- 旧データ `quick-tab:mvp:v4`〜`v1` が存在する場合は、初回読込時に v5 モデルへ normalize して取り込む
+- TAB データの基本構造は `TabData (= TabDataV5) = { version: "v5", tempo, timeSig, key?, ticksPerQuarter, tracks }`。`tracks` は `TabTrack = { name, tuning, measures }` の配列
+- 全トラックの measure 数は常に一致する(sanitize が不足分を空 measure でパディングして保証する)。measure の追加・挿入・削除・複製は全トラックへ構造適用し、measure 単位コピー/貼り付けはアクティブトラックの内容に対して行う
+- 編集・選択・フレットボード入力はアクティブトラック1本を対象とする(現状はトラック0固定。トラックバー UI は次段)
 - 時間表現は tick が正本で、`ticksPerQuarter = 24`（コード上の `TICKS_PER_QUARTER` を正とする）。イベントの `step` / `len` は tick 値であり、v3 までの step と同一スケール（1 step = 1 tick）
-- `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出し、`stepsPerMeasure` フィールドは v4 では持たない。全拍子は measure 容量が 96 tick 以下になるよう選定されている
+- `timeSig` は `TimeSignature` 型（`"4/4" | "3/4" | "2/4" | "6/8"`）。measure 容量（tick 数）は `getMeasureTicks(timeSig)` で導出する。全拍子は measure 容量が 96 tick 以下になるよう選定されている
 - 拍子変更時は既存イベントを保持し、新容量を超える部分は overflow として扱う
 - `key` は `KeySignature` 型（`"C" | "G" | ... | "Cb"` の 15 キー）。省略時は `"C"` として扱う。`normalizeToTabData` でバリデーションし、不正値は `"C"` にフォールバックする
 - `measures` は `[{ events: TabEvent[] }]` の配列で、各 `TabEvent` は note event または rest event を表す
