@@ -45,11 +45,11 @@
 - Measure 操作として前後移動、追加、挿入、削除、複製、measure 単位コピー/貼り付けを提供する。再生中は破壊的な編集を禁止する
 - 範囲選択はドラッグで行うが、MVP では単一 measure 内にクランプされる。選択範囲は range copy/paste と範囲削除に使う
 - Undo/Redo はローカル履歴で管理し、キーボードショートカットにも対応する
-- Play を押すと現在 measure から step 単位で再生カーソルが進み、各 step 開始位置のイベントだけを発音する。overflow measure では remainder をスキップして次 measure へ進む。最後の measure まで到達すると停止し、選択は先頭へ戻る
+- Play を押すと現在 measure から step 単位で再生カーソルが進み、**全トラック**の各 step 開始位置のイベントをミックスして発音する。overflow measure では全トラックの内容が尽きた時点で remainder をスキップして次 measure へ進む。最後の measure まで到達すると停止し、選択は先頭へ戻る
 - Tie された note の再生では、直前の同一弦・同一フレット note の発音を Tie note まで延長し、Tie note は再アタックしない
 - Export は現在の TAB データを JSON または MusicXML としてダウンロードし、Import は JSON を normalize/sanitize して現在のエディタ状態へ読み込む
-- MusicXML export は score-partwise + 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)として書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める
-- MusicXML import は最初の part の voice 1 を読み込み、note/chord/rest、dot、triplet(3:2)、tie、string/fret(technical 欠落時は音高から弦割当)、divisions 差のリスケールに対応する。サポート外の拍子は 4/4 へフォールバックする。export の gap 充填により、ラウンドトリップでは空き領域が明示的な休符イベントになる
+- MusicXML export は score-partwise として、**トラックごとに1 part** を 6 線 TAB 譜(クレフ TAB、staff-tuning、string/fret)で書き出す。divisions = ticksPerQuarter、調号・拍子・テンポ(先頭 part のみ)・tie・dot・triplet を反映し、イベント間の空きは休符で充填する。measure 容量を超える overflow は切り詰める
+- MusicXML import は**全 part をトラックとして**読み込む(各 part の voice 1)。part-list の part-name をトラック名に採用し、note/chord/rest、dot、triplet(3:2)、tie、string/fret(technical 欠落時は音高から弦割当)、part ごとの divisions 差のリスケールに対応する。サポート外の拍子は 4/4 へフォールバックする。export の gap 充填により、ラウンドトリップでは空き領域が明示的な休符イベントになる
 - 譜面エリアは GP 同様の折り返しレイアウトで表示する。コンテナ幅とズーム率から利用可能幅を計算し、measure を行(システム)単位に貪欲詰めする。各システムは五線譜+TAB グリッドのペアで、小節番号を併記する。システムを跨ぐ Tie の弧は描画されない(TAB の括弧表記は維持)
 - 譜面エリアとフレットボードはピンチまたはスライダーで拡大縮小できる。モバイル時は初期スケールを小さめに補正する。ズームを下げるほど1行に入る measure 数が増える
 
@@ -111,8 +111,7 @@
 - 編集・選択・measure 操作などのロジックは hook / model へ分離済みだが、`page.tsx` は依然それらの統合点であり、hook 間の受け渡しインターフェースが広い
 - 範囲選択は単一 measure に制限されており、複数 measure に跨る編集はまだ扱えない
 - 保存先が `localStorage` のみのため、端末変更やブラウザデータ削除では消える
-- 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない
-- 再生と MusicXML export/import は当面アクティブ(または先頭)トラックのみが対象。全トラックミックス再生と複数 part 入出力は次段
+- 再生は step ベースの簡易プレイヤーで、細かなタイミング表現や高度な発音制御は行っていない。トラックごとの音色・音量・ミュートは未対応
 - 拍子はドキュメント単位で、measure ごとの拍子変更には未対応。`TICKS_PER_QUARTER = 24` は単純な音価には十分だが、複雑な tuplet には分解能引き上げが必要になりうる
 - overflow event は measure ごとの表示幅を伸ばして TAB / 五線譜上に可視化し、その領域も通常 step と同様に選択・編集できる
 - 再生は overflow remainder をスキップして次 measure へ進む。表示上の overflow 領域を再生時間軸へどう統合するかは未整理で、将来の仕様見直し余地がある
