@@ -3,7 +3,6 @@
 import { ChangeEvent, CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./page.module.css";
 import StaffPreview from "./components/StaffPreview";
-import { STAFF_BOTTOM, STAFF_TOP, STAFF_VIEWBOX_HEIGHT } from "./components/StaffPreview";
 import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
@@ -11,58 +10,29 @@ import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import { useTabStorage } from "./hooks/useTabStorage";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useNotationLayout } from "./hooks/useNotationLayout";
+import { useRangeSelection } from "./hooks/useRangeSelection";
+import { useDigitInput } from "./hooks/useDigitInput";
+import { useTabEditing } from "./hooks/useTabEditing";
+import { useMeasureOps } from "./hooks/useMeasureOps";
+import { useNotationZoom, MIN_SCALE, MAX_SCALE } from "./hooks/useNotationZoom";
+import { downloadTabDataAsJson, readTabDataFile } from "./services/tabFile";
 import {
   CellPosition,
-  DurationModifier,
+  KEY_SIGNATURES,
+  KeySignature,
   SIXTEENTH_STEPS,
   STEPS_PER_MEASURE,
-  StepRangeClipboard,
-  StepRangePoint,
-  StepRangeSelection,
   STRINGS_COUNT,
   TUNING,
   TabDataV3,
-  TabEvent,
-  TabMeasureV3,
-  applySequentialDeleteShift,
-  applySequentialShift,
-  clampFret,
   clampTempo,
-  canPlaceEvent,
-  getSequentialPlacementContext,
-  copyMeasure,
   createEmptyTabDataV3,
-  deleteMeasure,
-  deleteSpecificNoteAtStep,
-  deleteCellOrRestAtStep,
-  duplicateMeasure,
-  eventsToGrid,
-  extractRangeClipboardFromMeasure,
   findEventAtStep,
   findOwningEventStep,
-  getCellFret,
-  getMeasureDisplaySteps,
-  getEventOccupiedSteps,
-  getMeasureOccupiedSteps,
-  getVisibleStepsForMeasure,
-  insertMeasure,
-  isMeasureOverflowing,
-  isStepBlockedForNewStart,
+  getMeasureEvents,
+  getNextCursorPositionWithAutoAppend,
   isStepInRange,
-  normalizeToTabDataV3,
-  normalizeStepRange,
-  pasteMeasure,
-  pasteRangeClipboardIntoMeasure,
-  sanitizeEvents,
-  KeySignature,
-  KEY_SIGNATURES,
-  sanitizeTabDataV3,
-  setTieAtStep,
-  shiftEventsFromStep,
-  toggleTieAtStep,
-  updateEventLengthAtStep,
-  upsertNoteAtCell,
-  upsertRestAtStep,
 } from "./tabModel";
 
 const TAB_LABEL_WIDTH = 92;
@@ -70,99 +40,9 @@ const TAB_LABEL_WIDTH_MOBILE = 64;
 const TAB_SLOT_WIDTH = 48;
 const TAB_SLOT_WIDTH_MOBILE = 34;
 const MEASURE_SCROLL_PADDING = 24;
-const MIN_SCALE = 0.3;
-const MAX_SCALE = 1.5;
-
-type CursorAdvanceResult = {
-  nextData: TabDataV3;
-  nextSelected: CellPosition;
-  didAppendMeasure: boolean;
-};
-
-type StaffBarMetrics = {
-  top: number;
-  height: number;
-};
-
-type PreviousStringNote = {
-  fret: number;
-};
 
 const toGlobalStep = (cursor: PlayCursor): number =>
   cursor.measureIndex * STEPS_PER_MEASURE + cursor.stepIndex;
-
-const appendEmptyMeasure = (data: TabDataV3): TabDataV3 => ({
-  ...data,
-  measures: [...data.measures, { events: [] }],
-});
-
-const getNextCursorPositionWithAutoAppend = (
-  data: TabDataV3,
-  selected: CellPosition,
-  moveAmount: number,
-  isPlaying: boolean,
-  displayUnit: number
-): CursorAdvanceResult => {
-  const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
-  let nextData = data;
-  let measureIndex = Math.max(0, Math.min(data.measures.length - 1, selected.measureIndex));
-  let stepIndex = Math.max(0, selected.stepIndex);
-  let remaining = safeMoveAmount;
-  let didAppendMeasure = false;
-
-  while (remaining > 0) {
-    const measureEvents = nextData.measures.at(measureIndex)?.events ?? [];
-    const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit);
-    const targetStep = stepIndex + remaining;
-
-    if (targetStep < displaySteps) {
-      return {
-        nextData,
-        nextSelected: {
-          ...selected,
-          measureIndex,
-          stepIndex: targetStep,
-        },
-        didAppendMeasure,
-      };
-    }
-
-    remaining = targetStep - displaySteps;
-
-    if (measureIndex < nextData.measures.length - 1) {
-      measureIndex += 1;
-      stepIndex = 0;
-      continue;
-    }
-
-    if (isPlaying) {
-      return {
-        nextData,
-        nextSelected: {
-          ...selected,
-          measureIndex,
-          stepIndex: Math.max(0, displaySteps - displayUnit),
-        },
-        didAppendMeasure,
-      };
-    }
-
-    nextData = appendEmptyMeasure(nextData);
-    didAppendMeasure = true;
-    measureIndex += 1;
-    stepIndex = 0;
-  }
-
-  return {
-    nextData,
-    nextSelected: {
-      ...selected,
-      measureIndex,
-      stepIndex,
-    },
-    didAppendMeasure,
-  };
-};
 
 export default function Home() {
   const [tabData, setTabData] = useState<TabDataV3>(createEmptyTabDataV3);
@@ -174,13 +54,7 @@ export default function Home() {
   const [inputLen, setInputLen] = useState<number>(SIXTEENTH_STEPS);
   const [isRestMode, setIsRestMode] = useState<boolean>(false);
   const [tempoInput, setTempoInput] = useState<string>("120");
-  const [numpadBuffer, setNumpadBuffer] = useState<string>("");
-  const [measureClipboard, setMeasureClipboard] = useState<TabMeasureV3 | null>(null);
-  const [rangeClipboard, setRangeClipboard] = useState<StepRangeClipboard | null>(null);
-  const [staffBarMetrics, setStaffBarMetrics] = useState<StaffBarMetrics | null>(null);
-  const [dragSelectionAnchor, setDragSelectionAnchor] = useState<StepRangePoint | null>(null);
-  const [selectedRange, setSelectedRange] = useState<StepRangeSelection | null>(null);
-  const [isDraggingRange, setIsDraggingRange] = useState(false);
+  const [tempoEditing, setTempoEditing] = useState(false);
   const [autoShift, setAutoShift] = useState(true);
   const [tieInputMode, setTieInputMode] = useState(false);
 
@@ -197,143 +71,51 @@ export default function Home() {
   const tabSlotWidth = isMobile ? TAB_SLOT_WIDTH_MOBILE : TAB_SLOT_WIDTH;
   const tabMeasureWidth = tabSlotWidth * 16;
 
-  const [notationScale, setNotationScale] = useState(1);
-  const notationScaleRef = useRef(1);
-  notationScaleRef.current = notationScale;
-
-  const [fretboardScale, setFretboardScale] = useState(1);
-  const handleFretboardScaleChange = useCallback(
-    (s: number) => setFretboardScale(Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))),
-    []
-  );
-
-  // Set initial mobile scale
-  useEffect(() => {
-    setNotationScale(isMobile ? 0.5 : 1);
-    setFretboardScale(isMobile ? 0.7 : 1);
-  }, [isMobile]);
-
   useTabStorage({
     tabData,
     onLoad: useCallback((data: TabDataV3) => setTabData(data), []),
   });
 
-  const digitBufferRef = useRef<string>("");
-  const digitTimerRef = useRef<number | null>(null);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
   const staffSectionRef = useRef<HTMLDivElement | null>(null);
   const prevPlaybackMeasureIndexRef = useRef<number | null>(null);
-  const didDragRangeRef = useRef(false);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
-  const selectedMeasureIndex = Math.max(
-    0,
-    Math.min(tabData.measures.length - 1, selected.measureIndex)
-  );
-  const events = tabData.measures.at(selectedMeasureIndex)?.events ?? [];
-  const selectedEvent = findEventAtStep(events, selected.stepIndex);
-  const selectedFret = getCellFret(events, selected.rowIndex, selected.stepIndex);
-  const activeFretboardNotes =
-    selectedEvent && !("rest" in selectedEvent && selectedEvent.rest)
-      ? selectedEvent.notes
-      : [];
-  const selectedStringNumber = selected.rowIndex + 1;
-  const selectedNote =
-    selectedEvent && !("rest" in selectedEvent && selectedEvent.rest)
-      ? selectedEvent.notes.find((note) => note.string === selectedStringNumber)
-      : undefined;
+  const layout = useNotationLayout({
+    tabData,
+    selected,
+    inputLen,
+    isRestMode,
+    tabLabelWidth,
+    tabMeasureWidth,
+  });
+  const {
+    selectedMeasureIndex,
+    events,
+    selectedEvent,
+    activeFretboardNotes,
+    selectedStringNumber,
+    selectedNote,
+    activeInputLen,
+    activeIsRestMode,
+    totalMeasures,
+    displayUnit,
+    stepWidth,
+    blockedStepsByMeasure,
+    blockedStepSet,
+    overflowingMeasureSet,
+    measureDisplayStepsByMeasure,
+    measureVisibleStepsByMeasure,
+    selectedMeasureDisplaySteps,
+    measureGrids,
+    displayCells,
+    measuresEvents,
+    measureStartXs,
+    timelineWidth,
+  } = layout;
+
   const selectedNoteTieActive = selectedNote?.tie === true;
   const tieButtonActive = selectedNote ? selectedNoteTieActive : tieInputMode;
-  const activeInputLen = selectedEvent ? selectedEvent.len : inputLen;
-  const activeIsRestMode =
-    selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
-  const totalMeasures = tabData.measures.length;
-  const minEventLenAcrossMeasures = tabData.measures.reduce((globalMin, measure) => {
-    const localMin = measure.events.reduce(
-      (min, event) => Math.min(min, Math.max(1, event.len)),
-      STEPS_PER_MEASURE
-    );
-    return Math.min(globalMin, localMin);
-  }, STEPS_PER_MEASURE);
-  const shouldRenderEveryStep = activeInputLen > SIXTEENTH_STEPS;
-  const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
-  const displayUnit =
-    shouldRenderEveryStep || effectiveMinLen <= SIXTEENTH_STEPS
-      ? SIXTEENTH_STEPS
-      : SIXTEENTH_STEPS * 2;
-  const displaySlots = STEPS_PER_MEASURE / displayUnit;
-  const stepWidth = tabMeasureWidth / displaySlots;
-  const blockedStepsByMeasure = useMemo(
-    () =>
-      tabData.measures.map((measure, index) => {
-        const visibleSteps = getVisibleStepsForMeasure(
-          getMeasureDisplaySteps(measure.events, displayUnit),
-          displayUnit
-        );
-        const set = new Set<number>();
-        visibleSteps.forEach((step) => {
-          if (
-            isStepBlockedForNewStart(
-              measure.events,
-              step,
-              getMeasureDisplaySteps(measure.events, displayUnit)
-            )
-          ) {
-            set.add(step);
-          }
-        });
-        return set;
-      }),
-    [displayUnit, tabData.measures]
-  );
-  const overflowingMeasureSet = useMemo(
-    () =>
-      new Set(
-        tabData.measures
-          .map((measure, index) => (isMeasureOverflowing(measure.events) ? index : -1))
-          .filter((index) => index >= 0)
-      ),
-    [tabData.measures]
-  );
-  const measureDisplayStepsByMeasure = useMemo(
-    () =>
-      tabData.measures.map((measure) =>
-        getMeasureDisplaySteps(measure.events, displayUnit)
-      ),
-    [displayUnit, tabData.measures]
-  );
-  const measureVisibleStepsByMeasure = useMemo(
-    () =>
-      measureDisplayStepsByMeasure.map((displaySteps) =>
-        getVisibleStepsForMeasure(displaySteps, displayUnit)
-      ),
-    [displayUnit, measureDisplayStepsByMeasure]
-  );
-  const measureDisplaySlotsByMeasure = useMemo(
-    () => measureVisibleStepsByMeasure.map((steps) => steps.length),
-    [measureVisibleStepsByMeasure]
-  );
-  const selectedMeasureDisplaySteps =
-    measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
-  const blockedStepSet = blockedStepsByMeasure[selectedMeasureIndex] ?? new Set<number>();
-  const measureGrids = useMemo(
-    () =>
-      tabData.measures.map((measure, index) =>
-        eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? STEPS_PER_MEASURE)
-      ),
-    [measureDisplayStepsByMeasure, tabData.measures]
-  );
-  const displayCells = useMemo(
-    () =>
-      measureVisibleStepsByMeasure.flatMap((visibleSteps, measureIndex) =>
-        visibleSteps.map((stepIndex, slotIndex) => ({
-          measureIndex,
-          stepIndex,
-          slotIndex,
-        }))
-      ),
-    [measureVisibleStepsByMeasure]
-  );
 
   const { commit: commitTabData, undo: handleUndo, redo: handleRedo, canUndo, canRedo } = useUndoRedo({
     tabData,
@@ -364,87 +146,35 @@ export default function Home() {
     );
   };
 
-  const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
-    data.measures.at(measureIndex)?.events ?? [];
-
-  const findPreviousNoteOnString = (
-    measureIndex: number,
-    stepIndex: number,
-    stringNumber: number
-  ): PreviousStringNote | null => {
-    for (let mi = measureIndex; mi >= 0; mi -= 1) {
-      const limitStep = mi === measureIndex ? stepIndex : Infinity;
-      const previousEvent = sanitizeEvents(
-        getMeasureEvents(tabData, mi),
-        measureDisplayStepsByMeasure[mi] ?? STEPS_PER_MEASURE,
-        true
-      )
-        .filter((event) => event.step < limitStep && !("rest" in event && event.rest))
-        .reverse()
-        .find((event) =>
-          !("rest" in event && event.rest) &&
-          event.notes.some((note) => note.string === stringNumber)
-        );
-      if (!previousEvent || ("rest" in previousEvent && previousEvent.rest)) {
-        continue;
-      }
-      const previousNote = previousEvent.notes.find((note) => note.string === stringNumber);
-      if (previousNote) {
-        return { fret: previousNote.fret };
-      }
-    }
-    return null;
-  };
-
   const getClampedDisplayStep = (stepIndex: number, measureIndex: number): number => {
-    const displaySteps =
-      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
     return Math.max(0, Math.min(displaySteps - 1, stepIndex));
   };
 
   const getRangeSelectableStep = (measureIndex: number, stepIndex: number): number => {
     const clampedStep = getClampedDisplayStep(stepIndex, measureIndex);
     const measureEvents = getMeasureEvents(tabData, measureIndex);
-    const displaySteps =
-      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
     return findOwningEventStep(measureEvents, clampedStep, displaySteps);
   };
 
-  const updateMeasureEvents = (
-    data: TabDataV3,
-    measureIndex: number,
-    nextEvents: TabEvent[]
-  ): TabDataV3 => {
-    const safeIndex = Math.max(0, measureIndex);
-    const measures = [...data.measures];
-    while (measures.length <= safeIndex) {
-      measures.push({ events: [] });
-    }
-    measures[safeIndex] = { events: nextEvents };
-    return { ...data, measures };
-  };
-
-  const clearDigitBuffer = () => {
-    digitBufferRef.current = "";
-    setNumpadBuffer("");
-    if (digitTimerRef.current !== null) {
-      window.clearTimeout(digitTimerRef.current);
-      digitTimerRef.current = null;
-    }
-  };
+  const {
+    selectedRange,
+    setSelectedRange,
+    isDraggingRange,
+    didDragRangeRef,
+    clearRangeSelection,
+    handleRangeMouseDown,
+    handleRangeMouseEnter,
+  } = useRangeSelection({ gridRef, getRangeSelectableStep });
 
   const setSingleCellSelection = (next: CellPosition) => {
     setSelected(next);
-    setSelectedRange(null);
-    setDragSelectionAnchor(null);
-    setIsDraggingRange(false);
+    clearRangeSelection();
   };
 
   const moveSelection = (next: CellPosition) => {
-    const clampedMeasure = Math.max(
-      0,
-      Math.min(tabData.measures.length - 1, next.measureIndex)
-    );
+    const clampedMeasure = Math.max(0, Math.min(tabData.measures.length - 1, next.measureIndex));
     setSingleCellSelection({
       measureIndex: clampedMeasure,
       rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, next.rowIndex)),
@@ -509,661 +239,103 @@ export default function Home() {
     setSingleCellSelection({ ...selected, stepIndex: current });
   };
 
-  const commitNoteAtSelected = (fret: number, forceTie = false) => {
-    const safeFret = clampFret(fret);
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
-      measureEvents,
-      selected.stepIndex,
-      autoShift
-    );
-    const placementSource =
-      autoShift && oldEvent ? placementEvents : measureEvents;
+  // Late-bound so useDigitInput can be created before useTabEditing while the
+  // commit target still resolves to the freshest closure on every render.
+  const commitFretRef = useRef<(fret: number) => void>(() => undefined);
+  const { clearDigitBuffer, handleDigitInput } = useDigitInput({
+    onCommitFret: (fret) => commitFretRef.current(fret),
+    isRestMode: activeIsRestMode,
+  });
 
-    if (
-      !canPlaceEvent(
-        placementSource,
-        selected.stepIndex,
-        activeInputLen,
-        { ignoreStep: selected.stepIndex },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-    const nextEventsWithoutTie = upsertNoteAtCell(
-      placementSource,
-      selected,
-      safeFret,
-      activeInputLen,
-      selectedMeasureDisplaySteps,
-      true
-    );
-    const shouldTie = tieInputMode || forceTie;
-    const nextEvents = shouldTie
-      ? setTieAtStep(
-          nextEventsWithoutTie,
-          selected.stepIndex,
-          selectedStringNumber,
-          true,
-          selectedMeasureDisplaySteps
-        )
-      : nextEventsWithoutTie;
-    const newEvent = findEventAtStep(nextEvents, selected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
-      const result = getNextCursorPositionWithAutoAppend(
-        updatedData,
-        selected,
-        activeInputLen,
-        isPlaying,
-        displayUnit
-      );
-    commitTabData(result.nextData);
-    setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, selected.stepIndex);
-  };
+  const {
+    commitNoteAtSelected,
+    commitFretboardFlick,
+    placeRestAtStep,
+    placeRestWithFlick,
+    handleDelete,
+    handleDeleteEvent,
+    handleToggleTie,
+  } = useTabEditing({
+    tabData,
+    commitTabData,
+    selected,
+    setSelected,
+    setSingleCellSelection,
+    selectedRange,
+    setSelectedRange,
+    clearDigitBuffer,
+    selectedMeasureIndex,
+    selectedMeasureDisplaySteps,
+    measureDisplayStepsByMeasure,
+    events,
+    selectedNote,
+    selectedStringNumber,
+    activeInputLen,
+    activeIsRestMode,
+    activeFretboardNotes,
+    displayUnit,
+    autoShift,
+    tieInputMode,
+    setTieInputMode,
+    setInputLen,
+    setIsRestMode,
+    isPlaying,
+    playNotePreview,
+  });
+  commitFretRef.current = commitNoteAtSelected;
 
-  const commitFretboardNote = (rowIndex: number, fret: number) => {
-    if (isPlaying) {
-      return;
-    }
+  const {
+    measureClipboard,
+    rangeClipboard,
+    handlePrevMeasure,
+    handleNextMeasure,
+    handleAddMeasure,
+    handleInsertMeasure,
+    handleDuplicateMeasure,
+    handleDeleteMeasure,
+    handleCopyMeasure,
+    handlePasteMeasure,
+    handleCopyRange,
+    handlePasteRange,
+  } = useMeasureOps({
+    tabData,
+    commitTabData,
+    isPlaying,
+    selected,
+    setSelected,
+    selectedMeasureIndex,
+    totalMeasures,
+    selectedRange,
+    measureDisplayStepsByMeasure,
+    getClampedDisplayStep,
+  });
 
-    const stringNumber = rowIndex + 1;
-    const safeFret = clampFret(fret);
-    const isActiveNote = activeFretboardNotes.some(
-      (note) => note.string === stringNumber && note.fret === safeFret
-    );
-
-    // TAB row mapping: rowIndex 0 => 1st string (E4), rowIndex 5 => 6th string (E2).
-    const nextSelected = {
-      ...selected,
-      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, rowIndex)),
-    };
-    setSelected(nextSelected);
-    setSelectedRange(null);
-    setDragSelectionAnchor(null);
-    setIsDraggingRange(false);
-
-    if (isActiveNote) {
-      const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-      const oldEvent = findEventAtStep(measureEvents, nextSelected.stepIndex);
-      const nextEvents = deleteSpecificNoteAtStep(
-        measureEvents,
-        nextSelected.stepIndex,
-        stringNumber,
-        safeFret,
-        selectedMeasureDisplaySteps
-      );
-      const remainingEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
-      const finalEvents =
-        oldEvent && !remainingEvent
-          ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
-          : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
-      commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
-      return;
-    }
-
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
-      measureEvents,
-      nextSelected.stepIndex,
-      autoShift
-    );
-    const placementSource =
-      autoShift && oldEvent ? placementEvents : measureEvents;
-
-    if (
-      !canPlaceEvent(
-        placementSource,
-        nextSelected.stepIndex,
-        activeInputLen,
-        { ignoreStep: nextSelected.stepIndex },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-    const nextEventsWithoutTie = upsertNoteAtCell(
-      placementSource,
-      nextSelected,
-      safeFret,
-      activeInputLen,
-      selectedMeasureDisplaySteps,
-      true
-    );
-    const nextEvents = tieInputMode
-      ? setTieAtStep(
-          nextEventsWithoutTie,
-          nextSelected.stepIndex,
-          stringNumber,
-          true,
-          selectedMeasureDisplaySteps
-        )
-      : nextEventsWithoutTie;
-    const newEvent = findEventAtStep(nextEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(nextEvents, deferredEvents, oldEvent, newEvent, autoShift);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
-    const result = getNextCursorPositionWithAutoAppend(
-      updatedData,
-      nextSelected,
-      activeInputLen,
-      isPlaying,
-      displayUnit
-    );
-    commitTabData(result.nextData);
-    setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
-  };
-
-  const placeRestAtStep = (stepIndex: number) => {
-    if (
-      !canPlaceEvent(
-        events,
-        stepIndex,
-        activeInputLen,
-        { ignoreStep: stepIndex },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertRestAtStep(
-      measureEvents,
-      stepIndex,
-      activeInputLen,
-      selectedMeasureDisplaySteps,
-      true
-    );
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents);
-    const result = getNextCursorPositionWithAutoAppend(
-      updatedData,
-      { ...selected, stepIndex },
-      activeInputLen,
-      isPlaying,
-      displayUnit
-    );
-    commitTabData(result.nextData);
-    setSingleCellSelection(result.nextSelected);
-  };
-
-  // --- Flick-based input (音程+音価を1アクションで入力) ---
-
-  const commitFretboardFlick = (
-    rowIndex: number,
-    fret: number,
-    len: number,
-    modifier: DurationModifier
-  ) => {
-    if (isPlaying) return;
-
-    const safeFret = clampFret(fret);
-
-    const nextSelected = {
-      ...selected,
-      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, rowIndex)),
-    };
-    setSelected(nextSelected);
-    setSelectedRange(null);
-    setDragSelectionAnchor(null);
-    setIsDraggingRange(false);
-
-    // Always overwrite (no toggle) — flick is an intentional placement gesture
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
-      measureEvents,
-      nextSelected.stepIndex,
-      autoShift
-    );
-    const placementSource =
-      autoShift && oldEvent ? placementEvents : measureEvents;
-
-    if (
-      !canPlaceEvent(
-        placementSource,
-        nextSelected.stepIndex,
-        len,
-        { ignoreStep: nextSelected.stepIndex },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-    const nextEventsWithoutTie = upsertNoteAtCell(
-      placementSource,
-      nextSelected,
-      safeFret,
-      len,
-      selectedMeasureDisplaySteps,
-      true
-    );
-    const nextEvents = tieInputMode
-      ? setTieAtStep(
-          nextEventsWithoutTie,
-          nextSelected.stepIndex,
-          rowIndex + 1,
-          true,
-          selectedMeasureDisplaySteps
-        )
-      : nextEventsWithoutTie;
-
-    // Apply dot/triplet modifier to the inserted event
-    const modifiedEvents = nextEvents.map((ev) => {
-      if (ev.step !== nextSelected.stepIndex) return ev;
-      const base = { ...ev };
-      delete base.dot;
-      delete base.triplet;
-      if (modifier === "dotted") return { ...base, dot: true as const };
-      if (modifier === "triplet") return { ...base, triplet: true as const };
-      return base;
-    });
-    const newEvent = findEventAtStep(modifiedEvents, nextSelected.stepIndex);
-    const finalEvents = applySequentialShift(modifiedEvents, deferredEvents, oldEvent, newEvent, autoShift);
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents);
-    const result = getNextCursorPositionWithAutoAppend(
-      updatedData,
-      nextSelected,
-      len,
-      isPlaying,
-      displayUnit
-    );
-    commitTabData(result.nextData);
-    setSingleCellSelection(result.nextSelected);
-    playNotePreview(updatedData, selectedMeasureIndex, nextSelected.stepIndex);
-
-    // Sync toolbar duration display
-    setInputLen(len);
-    setIsRestMode(false);
-  };
-
-  const placeRestWithFlick = (len: number, modifier: DurationModifier) => {
-    if (isPlaying) return;
-    const stepIndex = selected.stepIndex;
-    if (
-      !canPlaceEvent(
-        events,
-        stepIndex,
-        len,
-        { ignoreStep: stepIndex },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = upsertRestAtStep(
-      measureEvents,
-      stepIndex,
-      len,
-      selectedMeasureDisplaySteps,
-      true
-    );
-
-    // Apply dot/triplet modifier
-    const modifiedEvents = nextEvents.map((ev) => {
-      if (ev.step !== stepIndex) return ev;
-      const base = { ...ev };
-      delete base.dot;
-      delete base.triplet;
-      if (modifier === "dotted") return { ...base, dot: true as const };
-      if (modifier === "triplet") return { ...base, triplet: true as const };
-      return base;
-    });
-
-    const updatedData = updateMeasureEvents(tabData, selectedMeasureIndex, modifiedEvents);
-    const result = getNextCursorPositionWithAutoAppend(
-      updatedData,
-      { ...selected, stepIndex },
-      len,
-      isPlaying,
-      displayUnit
-    );
-    commitTabData(result.nextData);
-    setSingleCellSelection(result.nextSelected);
-
-    // Sync toolbar
-    setInputLen(len);
-    setIsRestMode(true);
-  };
+  const {
+    notationScale,
+    setNotationScale,
+    fretboardScale,
+    handleFretboardScaleChange,
+    staffBarMetrics,
+  } = useNotationZoom({
+    isMobile,
+    timelineScrollRef,
+    staffSectionRef,
+    totalMeasures,
+    stepWidth,
+    displayUnit,
+  });
 
   useEffect(() => {
     setTempoInput(String(tabData.tempo));
   }, [tabData]);
 
   useEffect(() => {
-    if (!isDraggingRange) {
-      return;
-    }
-
-    const handleDragEnd = () => {
-      setIsDraggingRange(false);
-      setDragSelectionAnchor(null);
-    };
-
-    window.addEventListener("mouseup", handleDragEnd);
-    window.addEventListener("touchend", handleDragEnd);
-    return () => {
-      window.removeEventListener("mouseup", handleDragEnd);
-      window.removeEventListener("touchend", handleDragEnd);
-    };
-  }, [isDraggingRange]);
-
-  const handleRangeMouseEnterRef = useRef<(measureIndex: number, stepIndex: number) => void>(() => undefined);
-
-  useEffect(() => {
-    const grid = gridRef.current;
-    if (!grid || !isDraggingRange) {
-      return;
-    }
-
-    const updateRangeFromPoint = (clientX: number, clientY: number) => {
-      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-      const cell = el?.closest("[data-measure-index]") as HTMLElement | null;
-      if (!cell) {
-        return;
-      }
-      const mi = cell.getAttribute("data-measure-index");
-      const si = cell.getAttribute("data-step-index");
-      if (mi !== null && si !== null) {
-        handleRangeMouseEnterRef.current(Number(mi), Number(si));
-      }
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      updateRangeFromPoint(e.clientX, e.clientY);
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      e.preventDefault();
-      const touch = e.touches[0];
-      updateRangeFromPoint(touch.clientX, touch.clientY);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    grid.addEventListener("touchmove", handleTouchMove, { passive: false });
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      grid.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, [isDraggingRange]);
-
-  useEffect(() => {
     return () => {
       stopPlayback();
       clearDigitBuffer();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stopPlayback]);
-
-  const handlePrevMeasure = () => {
-    if (isPlaying || selectedMeasureIndex <= 0) {
-      return;
-    }
-    setSelected((prev) => {
-      const nextMeasureIndex = Math.max(0, prev.measureIndex - 1);
-      return {
-        ...prev,
-        measureIndex: nextMeasureIndex,
-        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: getClampedDisplayStep(prev.stepIndex, nextMeasureIndex),
-      };
-    });
-  };
-
-  const handleNextMeasure = () => {
-    if (isPlaying) {
-      return;
-    }
-
-    if (selectedMeasureIndex >= totalMeasures - 1) {
-      commitTabData({
-        ...tabData,
-        measures: [...tabData.measures, { events: [] }],
-      });
-      setSelected((prev) => ({
-        ...prev,
-        measureIndex: totalMeasures,
-        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: 0,
-      }));
-      return;
-    }
-
-    setSelected((prev) => {
-      const nextMeasureIndex = Math.min(totalMeasures - 1, prev.measureIndex + 1);
-      return {
-        ...prev,
-        measureIndex: nextMeasureIndex,
-        rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-        stepIndex: getClampedDisplayStep(prev.stepIndex, nextMeasureIndex),
-      };
-    });
-  };
-
-  const handleAddMeasure = () => {
-    if (isPlaying) {
-      return;
-    }
-    const nextMeasureIndex = totalMeasures;
-    commitTabData({
-      ...tabData,
-      measures: [...tabData.measures, { events: [] }],
-    });
-    setSelected({
-      measureIndex: nextMeasureIndex,
-      rowIndex: 0,
-      stepIndex: 0,
-    });
-  };
-
-  const handleInsertMeasure = () => {
-    if (isPlaying) {
-      return;
-    }
-
-    commitTabData(insertMeasure(tabData, selectedMeasureIndex));
-    setSelected({
-      measureIndex: selectedMeasureIndex,
-      rowIndex: 0,
-      stepIndex: 0,
-    });
-  };
-
-  const handleDuplicateMeasure = () => {
-    if (isPlaying) {
-      return;
-    }
-
-    commitTabData(duplicateMeasure(tabData, selectedMeasureIndex));
-    setSelected((prev) => ({
-      ...prev,
-      measureIndex: Math.min(totalMeasures, selectedMeasureIndex + 1),
-    }));
-  };
-
-  const handleCopyMeasure = () => {
-    setMeasureClipboard(copyMeasure(tabData, selectedMeasureIndex));
-  };
-
-  const handlePasteMeasure = () => {
-    if (!measureClipboard || isPlaying) {
-      return;
-    }
-
-    commitTabData(pasteMeasure(tabData, selectedMeasureIndex, measureClipboard));
-  };
-
-  const handleRangeMouseDown = (measureIndex: number, stepIndex: number) => {
-    const anchor = {
-      measureIndex,
-      stepIndex: getRangeSelectableStep(measureIndex, stepIndex),
-    };
-    didDragRangeRef.current = false;
-    setDragSelectionAnchor(anchor);
-    setSelectedRange(normalizeStepRange(anchor, anchor));
-    setIsDraggingRange(true);
-  };
-
-  const handleRangeMouseEnter = (measureIndex: number, stepIndex: number) => {
-    if (!isDraggingRange || !dragSelectionAnchor) {
-      return;
-    }
-    const nextStepIndex = getRangeSelectableStep(measureIndex, stepIndex);
-    if (
-      dragSelectionAnchor.measureIndex !== measureIndex ||
-      dragSelectionAnchor.stepIndex !== nextStepIndex
-    ) {
-      didDragRangeRef.current = true;
-    }
-    setSelectedRange(
-      normalizeStepRange(dragSelectionAnchor, {
-        measureIndex,
-        stepIndex: nextStepIndex,
-      })
-    );
-  };
-  handleRangeMouseEnterRef.current = handleRangeMouseEnter;
-
-  const handleCopyRange = () => {
-    if (!selectedRange) {
-      return;
-    }
-    const sourceEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
-    setRangeClipboard(extractRangeClipboardFromMeasure(sourceEvents, selectedRange));
-  };
-
-  const handlePasteRange = () => {
-    if (!rangeClipboard || isPlaying) {
-      return;
-    }
-
-    const targetDisplaySteps =
-      measureDisplayStepsByMeasure[selectedMeasureIndex] ?? STEPS_PER_MEASURE;
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const nextEvents = pasteRangeClipboardIntoMeasure(
-      measureEvents,
-      selected.stepIndex,
-      rangeClipboard,
-      targetDisplaySteps
-    );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
-  };
-
-  const handleDeleteMeasure = () => {
-    if (isPlaying || totalMeasures <= 1) {
-      return;
-    }
-
-    commitTabData(deleteMeasure(tabData, selectedMeasureIndex));
-    setSelected((prev) => ({
-      ...prev,
-      measureIndex: Math.min(selectedMeasureIndex, totalMeasures - 2),
-      rowIndex: Math.max(0, Math.min(STRINGS_COUNT - 1, prev.rowIndex)),
-      stepIndex: getClampedDisplayStep(
-        prev.stepIndex,
-        Math.min(selectedMeasureIndex, totalMeasures - 2)
-      ),
-    }));
-  };
-
-  const handleDelete = () => {
-    clearDigitBuffer();
-    if (selectedRange) {
-      // Delete all events within the range selection
-      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
-      const nextEvents = measureEvents.filter(
-        (event) => event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
-      );
-      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
-      setSelectedRange(null);
-      return;
-    }
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const owningStep = findOwningEventStep(
-      measureEvents,
-      selected.stepIndex,
-      selectedMeasureDisplaySteps
-    );
-    const oldEvent = findEventAtStep(measureEvents, owningStep);
-    const nextEvents = deleteCellOrRestAtStep(measureEvents, {
-      ...selected,
-      stepIndex: owningStep,
-    }, selectedMeasureDisplaySteps);
-    const remainingEvent = findEventAtStep(nextEvents, owningStep);
-    const finalEvents =
-      oldEvent && !remainingEvent
-        ? applySequentialDeleteShift(nextEvents, oldEvent, autoShift)
-        : sanitizeEvents(nextEvents, STEPS_PER_MEASURE, true);
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
-  };
-
-  const handleDeleteEvent = () => {
-    clearDigitBuffer();
-    if (selectedRange) {
-      const measureEvents = getMeasureEvents(tabData, selectedRange.startMeasureIndex);
-      const nextEvents = measureEvents.filter(
-        (event) => event.step < selectedRange.startStepIndex || event.step > selectedRange.endStepIndex
-      );
-      commitTabData(updateMeasureEvents(tabData, selectedRange.startMeasureIndex, nextEvents));
-      setSelectedRange(null);
-      return;
-    }
-
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const owningStep = findOwningEventStep(
-      measureEvents,
-      selected.stepIndex,
-      selectedMeasureDisplaySteps
-    );
-    const oldEvent = findEventAtStep(measureEvents, owningStep);
-    const nextEvents = sanitizeEvents(measureEvents, selectedMeasureDisplaySteps, true).filter(
-      (event) => event.step !== owningStep
-    );
-    const finalEvents = applySequentialDeleteShift(nextEvents, oldEvent, autoShift);
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
-  };
-
-  const handleToggleTie = () => {
-    if (isPlaying) {
-      return;
-    }
-
-    if (!selectedNote) {
-      const previousNote = findPreviousNoteOnString(
-        selectedMeasureIndex,
-        selected.stepIndex,
-        selectedStringNumber
-      );
-      if (previousNote) {
-        commitNoteAtSelected(previousNote.fret, true);
-        setTieInputMode(false);
-        return;
-      }
-
-      setTieInputMode((prev) => !prev);
-      return;
-    }
-
-    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
-    const owningStep = findOwningEventStep(
-      measureEvents,
-      selected.stepIndex,
-      selectedMeasureDisplaySteps
-    );
-    const nextEvents = toggleTieAtStep(
-      measureEvents,
-      owningStep,
-      selectedStringNumber,
-      selectedMeasureDisplaySteps
-    );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
-    setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
-  };
 
   const handleTempoCommit = (raw: string) => {
     const parsed = Number(raw);
@@ -1174,112 +346,6 @@ export default function Home() {
 
     const nextTempo = clampTempo(parsed);
     commitTabData({ ...tabData, tempo: nextTempo });
-  };
-
-  const handleSelectDuration = (len: number, nextRestMode: boolean) => {
-    setInputLen(len);
-    setIsRestMode(nextRestMode);
-
-    const targetStep = findOwningEventStep(
-      events,
-      selected.stepIndex,
-      selectedMeasureDisplaySteps
-    );
-    const currentEvent = findEventAtStep(events, targetStep);
-    if (!currentEvent) {
-      return;
-    }
-
-    if (!nextRestMode) {
-      const selectedFret = getCellFret(events, selected.rowIndex, targetStep);
-      if (selectedFret === null) {
-        return;
-      }
-    }
-
-    if (nextRestMode && !("rest" in currentEvent && currentEvent.rest)) {
-      return;
-    }
-
-    const measureEventsForLen = getMeasureEvents(tabData, selectedMeasureIndex);
-    const { oldEvent, placementEvents, deferredEvents } = getSequentialPlacementContext(
-      measureEventsForLen,
-      targetStep,
-      autoShift
-    );
-    const placementSource =
-      autoShift && oldEvent ? placementEvents : measureEventsForLen;
-
-    if (
-      !canPlaceEvent(
-        placementSource,
-        targetStep,
-        len,
-        { ignoreStep: targetStep },
-        selectedMeasureDisplaySteps,
-        true
-      )
-    ) {
-      return;
-    }
-
-    const nextEventsForLen = updateEventLengthAtStep(
-      placementSource,
-      targetStep,
-      len,
-      selectedMeasureDisplaySteps,
-      true
-    );
-    const newEvent = findEventAtStep(nextEventsForLen, targetStep);
-    const finalEvents = applySequentialShift(
-      nextEventsForLen,
-      deferredEvents,
-      oldEvent,
-      newEvent,
-      autoShift
-    );
-    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, finalEvents));
-    setSelected((prev) => ({ ...prev, stepIndex: targetStep }));
-  };
-
-  const handleDigitInput = (digit: string) => {
-    if (activeIsRestMode) {
-      return;
-    }
-
-    const nextBuffer = `${digitBufferRef.current}${digit}`.slice(0, 2);
-    digitBufferRef.current = nextBuffer;
-    const parsed = Number(nextBuffer);
-
-    if (Number.isNaN(parsed) || parsed > 24) {
-      digitBufferRef.current = digit;
-    }
-
-    setNumpadBuffer(digitBufferRef.current);
-
-    if (digitTimerRef.current !== null) {
-      window.clearTimeout(digitTimerRef.current);
-      digitTimerRef.current = null;
-    }
-
-    const commit = () => {
-      if (digitBufferRef.current === "") {
-        return;
-      }
-      const fret = Number(digitBufferRef.current);
-      clearDigitBuffer();
-      setNumpadBuffer("");
-      if (!Number.isNaN(fret)) {
-        commitNoteAtSelected(fret);
-      }
-    };
-
-    if (digitBufferRef.current.length >= 2) {
-      commit();
-      return;
-    }
-
-    digitTimerRef.current = window.setTimeout(commit, 420);
   };
 
   useKeyboardShortcuts({
@@ -1307,29 +373,18 @@ export default function Home() {
     rangeClipboard,
   });
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify(tabData, null, 2)], {
-      type: "application/json",
-    });
+  const handleExport = useCallback(() => {
+    downloadTabDataAsJson(tabData);
+  }, [tabData]);
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "quick-tab-v3.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+  const handleImportFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
     }
 
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const normalized = normalizeToTabDataV3(parsed, true);
+      const normalized = await readTabDataFile(file);
       if (!normalized) {
         alert("Invalid JSON format.");
         return;
@@ -1343,7 +398,8 @@ export default function Home() {
     } finally {
       event.target.value = "";
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stopPlayback]);
 
   const durationPreviewEndStep = Math.min(
     selectedMeasureDisplaySteps,
@@ -1362,31 +418,15 @@ export default function Home() {
     }
 
     const measureEvents = getMeasureEvents(tabData, measureIndex);
-    const displaySteps =
-      measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
+    const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? STEPS_PER_MEASURE;
     const owningStep = findOwningEventStep(measureEvents, stepIndex, displaySteps);
     return isStepInRange(selectedRange, measureIndex, owningStep);
   };
-  const measuresEvents = useMemo(
-    () => tabData.measures.map((measure) => measure.events),
-    [tabData.measures]
-  );
+
   const totalDisplaySlots = displayCells.length;
-  const measureStartXs = useMemo(() => {
-    const starts = [tabLabelWidth];
-    let cursor = tabLabelWidth;
-    measureDisplaySlotsByMeasure.forEach((slotCount) => {
-      cursor += slotCount * stepWidth;
-      starts.push(cursor);
-    });
-    return starts;
-  }, [measureDisplaySlotsByMeasure, stepWidth, tabLabelWidth]);
-  const timelineWidth = measureStartXs[measureStartXs.length - 1] ?? tabLabelWidth;
   const currentGlobalStep = playCursor ? toGlobalStep(playCursor) : null;
   const currentPlaybackMeasureIndex =
-    currentGlobalStep === null
-      ? null
-      : Math.floor(currentGlobalStep / STEPS_PER_MEASURE);
+    currentGlobalStep === null ? null : Math.floor(currentGlobalStep / STEPS_PER_MEASURE);
   const notationStyle = {
     "--label-width": `${tabLabelWidth}px`,
     "--step-width": `${stepWidth}px`,
@@ -1417,79 +457,6 @@ export default function Home() {
   }, [currentPlaybackMeasureIndex, isPlaying, measureStartXs]);
 
   useEffect(() => {
-    const staffSectionEl = staffSectionRef.current;
-    if (!staffSectionEl) {
-      return;
-    }
-
-    const updateMetrics = () => {
-      // notationContent uses CSS zoom, so getBoundingClientRect() returns already-scaled pixels.
-      // The overlay lives inside the same zoomed subtree, therefore its top/height must be
-      // computed from unscaled layout units to avoid double-scaling.
-      const layoutHeight = staffSectionEl.offsetHeight;
-      const scale = layoutHeight / STAFF_VIEWBOX_HEIGHT;
-      const lineHeight = Math.max(0, (STAFF_BOTTOM - STAFF_TOP) * scale - 2);
-      setStaffBarMetrics({
-        top: STAFF_TOP * scale,
-        height: lineHeight,
-      });
-    };
-
-    updateMetrics();
-
-    const resizeObserver = new ResizeObserver(updateMetrics);
-    resizeObserver.observe(staffSectionEl);
-    window.addEventListener("resize", updateMetrics);
-
-    return () => {
-      resizeObserver.disconnect();
-      window.removeEventListener("resize", updateMetrics);
-    };
-  }, [notationScale, totalMeasures, stepWidth, displayUnit]);
-
-  // Pinch-to-zoom on notation area
-  const pinchRef = useRef<{ initialDist: number; initialScale: number } | null>(null);
-  useEffect(() => {
-    const el = timelineScrollRef.current;
-    if (!el) return;
-
-    const getDistance = (t1: Touch, t2: Touch) =>
-      Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-
-    const onTouchStart = (e: TouchEvent) => {
-      if (e.touches.length === 2) {
-        pinchRef.current = {
-          initialDist: getDistance(e.touches[0], e.touches[1]),
-          initialScale: notationScaleRef.current,
-        };
-      }
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (e.touches.length === 2 && pinchRef.current) {
-        e.preventDefault();
-        const dist = getDistance(e.touches[0], e.touches[1]);
-        const ratio = dist / pinchRef.current.initialDist;
-        const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchRef.current.initialScale * ratio));
-        setNotationScale(newScale);
-      }
-    };
-
-    const onTouchEnd = () => { pinchRef.current = null; };
-
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchcancel", onTouchEnd);
-    return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
-    };
-  }, []);
-
-  useEffect(() => {
     setSelected((prev) => {
       if (prev.measureIndex === selectedMeasureIndex) {
         return prev;
@@ -1503,11 +470,7 @@ export default function Home() {
       // If cursor is on a blocked step (inside an event's duration),
       // snap to that event's start step so the full range is highlighted
       if (blockedStepSet.has(prev.stepIndex)) {
-        const owningStep = findOwningEventStep(
-          events,
-          prev.stepIndex,
-          selectedMeasureDisplaySteps
-        );
+        const owningStep = findOwningEventStep(events, prev.stepIndex, selectedMeasureDisplaySteps);
         if (owningStep !== prev.stepIndex) {
           return { ...prev, stepIndex: owningStep };
         }
@@ -1518,6 +481,7 @@ export default function Home() {
       }
       return { ...prev, stepIndex: nextStep };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayUnit, blockedStepSet, events]);
 
   useEffect(() => {
@@ -1534,8 +498,6 @@ export default function Home() {
     setInputLen(selectedEvent.len);
     setIsRestMode(false);
   }, [selectedEvent]);
-
-  const [tempoEditing, setTempoEditing] = useState(false);
 
   const menuItems = useMemo(() => [
     { type: "button" as const, label: "Undo", onClick: handleUndo, disabled: !canUndo },
@@ -1739,7 +701,7 @@ export default function Home() {
                   currentCursor={playCursor}
                   stepWidth={stepWidth}
                   stepUnit={displayUnit}
-                  measureDisplaySlots={measureDisplaySlotsByMeasure}
+                  measureDisplaySlots={layout.measureDisplaySlotsByMeasure}
                   measureStartXs={measureStartXs}
                   timelineWidth={timelineWidth}
                   overflowingMeasures={overflowingMeasureSet}
@@ -1769,7 +731,7 @@ export default function Home() {
                     <div className={styles.stringLabel}>
                       {TUNING[rowIndex]}
                     </div>
-                    {displayCells.map(({ measureIndex, stepIndex }, globalSlotIndex) => {
+                    {displayCells.map(({ measureIndex, stepIndex }) => {
                       const measureEvents = getMeasureEvents(tabData, measureIndex);
                       const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
                       const cellEvent = findEventAtStep(measureEvents, stepIndex);

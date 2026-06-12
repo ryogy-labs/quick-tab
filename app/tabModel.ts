@@ -1179,3 +1179,139 @@ export const applySequentialDeleteShift = (
     true
   );
 };
+
+export type CursorAdvanceResult = {
+  nextData: TabDataV3;
+  nextSelected: CellPosition;
+  didAppendMeasure: boolean;
+};
+
+export const appendEmptyMeasure = (data: TabDataV3): TabDataV3 => ({
+  ...data,
+  measures: [...data.measures, { events: [] }],
+});
+
+export const getMeasureEvents = (data: TabDataV3, measureIndex: number): TabEvent[] =>
+  data.measures.at(measureIndex)?.events ?? [];
+
+export const updateMeasureEvents = (
+  data: TabDataV3,
+  measureIndex: number,
+  nextEvents: TabEvent[]
+): TabDataV3 => {
+  const safeIndex = Math.max(0, measureIndex);
+  const measures = [...data.measures];
+  while (measures.length <= safeIndex) {
+    measures.push({ events: [] });
+  }
+  measures[safeIndex] = { events: nextEvents };
+  return { ...data, measures };
+};
+
+/**
+ * Advance the cursor by moveAmount display steps, appending a new measure
+ * when the cursor walks past the end of the last measure (unless playing).
+ */
+export const getNextCursorPositionWithAutoAppend = (
+  data: TabDataV3,
+  selected: CellPosition,
+  moveAmount: number,
+  isPlaying: boolean,
+  displayUnit: number
+): CursorAdvanceResult => {
+  const safeMoveAmount = Math.max(1, Math.trunc(moveAmount));
+  let nextData = data;
+  let measureIndex = Math.max(0, Math.min(data.measures.length - 1, selected.measureIndex));
+  let stepIndex = Math.max(0, selected.stepIndex);
+  let remaining = safeMoveAmount;
+  let didAppendMeasure = false;
+
+  while (remaining > 0) {
+    const measureEvents = nextData.measures.at(measureIndex)?.events ?? [];
+    const displaySteps = getMeasureDisplaySteps(measureEvents, displayUnit);
+    const targetStep = stepIndex + remaining;
+
+    if (targetStep < displaySteps) {
+      return {
+        nextData,
+        nextSelected: {
+          ...selected,
+          measureIndex,
+          stepIndex: targetStep,
+        },
+        didAppendMeasure,
+      };
+    }
+
+    remaining = targetStep - displaySteps;
+
+    if (measureIndex < nextData.measures.length - 1) {
+      measureIndex += 1;
+      stepIndex = 0;
+      continue;
+    }
+
+    if (isPlaying) {
+      return {
+        nextData,
+        nextSelected: {
+          ...selected,
+          measureIndex,
+          stepIndex: Math.max(0, displaySteps - displayUnit),
+        },
+        didAppendMeasure,
+      };
+    }
+
+    nextData = appendEmptyMeasure(nextData);
+    didAppendMeasure = true;
+    measureIndex += 1;
+    stepIndex = 0;
+  }
+
+  return {
+    nextData,
+    nextSelected: {
+      ...selected,
+      measureIndex,
+      stepIndex,
+    },
+    didAppendMeasure,
+  };
+};
+
+/**
+ * Find the most recent note on the given string at or before the given
+ * position, searching backwards across measures.
+ */
+export const findPreviousNoteOnString = (
+  data: TabDataV3,
+  measureIndex: number,
+  stepIndex: number,
+  stringNumber: number,
+  displayStepsByMeasure: number[]
+): { fret: number } | null => {
+  for (let mi = measureIndex; mi >= 0; mi -= 1) {
+    const limitStep = mi === measureIndex ? stepIndex : Infinity;
+    const previousEvent = sanitizeEvents(
+      getMeasureEvents(data, mi),
+      displayStepsByMeasure[mi] ?? STEPS_PER_MEASURE,
+      true
+    )
+      .filter((event) => event.step < limitStep && !("rest" in event && event.rest))
+      .reverse()
+      .find(
+        (event) =>
+          !("rest" in event && event.rest) &&
+          event.notes.some((note) => note.string === stringNumber)
+      );
+    if (!previousEvent || ("rest" in previousEvent && previousEvent.rest)) {
+      continue;
+    }
+    const previousNote = previousEvent.notes.find((note) => note.string === stringNumber);
+    if (previousNote) {
+      return { fret: previousNote.fret };
+    }
+  }
+  return null;
+};
