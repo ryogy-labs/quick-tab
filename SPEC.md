@@ -14,6 +14,7 @@
 - `app/components/StaffPreview.tsx`: TAB データから五線譜プレビューを描画する
 - `app/components/FretboardInput.tsx`: フレットボード UI とフリック入力を扱う
 - `app/components/MobileNumpad.tsx`: モバイル向け数字入力と休符入力を扱う
+- `app/components/TechniquePalette.tsx`: 選択 note への technique 付与/解除用ポップオーバーを扱う
 - `app/hooks/useFlickGesture.ts`: フリック方向から音価と modifier を確定する
 - `app/hooks/usePlayback.ts`: Web Audio による発音と step 単位の再生カーソル進行を管理する
 - `app/hooks/useTabStorage.ts`: localStorage への読み書きと legacy データ移行を担う
@@ -31,6 +32,7 @@
 ## Core Flows
 - エディタは tick 単位（4 分音符 = 24 tick）の内部グリッドで動作し、表示上は 16 分音符単位の列を維持する。拍子（4/4, 3/4, 2/4, 6/8）はドキュメント単位で選択でき、measure 容量はその拍子から導出される
 - 音価を先に選び、その後セルまたはフレットボード上の位置を指定してフレット番号を入力する。選択中イベントがある場合は、そのイベント長をツールバーへ同期する
+- Technique(slide / hammer / pulloff / bend / vibrato)は、選択中の note に対してツールバーの Fx パレットから付与/解除できる。TAB グリッドではフレット番号の後ろに省略グリフ(s/h/p/b/~)、五線譜ではノート上部に大文字グリフを表示する。MusicXML export への technique 反映は未対応
 - Tie は選択中の note に付与/解除できる。空セル選択時に直前の同じ弦の note が存在する場合は、その note と同じフレットを Tie note として自動入力する。直前 note が存在しない場合は Tie 入力モードとして切り替わり、次に入力する note へ Tie を付与する。Tie は同一弦・同一フレットの直前 note から音を受けてつなぐ指定として扱い、譜面プレビューでは直前 note から Tie note へタイ曲線、TAB グリッドではフレット番号を括弧で囲んで表示する
 - デスクトップでは数字キー、モバイルではテンキーからフレット番号を入力する。2 桁入力は短いバッファ時間内で結合され、確定後にノートを配置する
 - フレットボードではタップで既定音価のノートを置き、フリックで音価と dotted/triplet modifier を含めて 1 アクションで配置できる

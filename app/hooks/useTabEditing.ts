@@ -20,7 +20,9 @@ import {
   getMeasureEvents,
   getNextCursorPositionWithAutoAppend,
   getSequentialPlacementContext,
+  Technique,
   sanitizeEvents,
+  setTechniqueAtStep,
   setTieAtStep,
   toggleTieAtStep,
   updateEventLengthAtStep,
@@ -507,6 +509,28 @@ export function useTabEditing({
     setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
   };
 
+  const handleSetTechnique = (technique: Technique | null) => {
+    if (isPlaying) {
+      return;
+    }
+
+    const measureEvents = getMeasureEvents(tabData, selectedMeasureIndex);
+    const owningStep = findOwningEventStep(
+      measureEvents,
+      selected.stepIndex,
+      selectedMeasureDisplaySteps
+    );
+    const nextEvents = setTechniqueAtStep(
+      measureEvents,
+      owningStep,
+      selectedStringNumber,
+      technique,
+      selectedMeasureDisplaySteps
+    );
+    commitTabData(updateMeasureEvents(tabData, selectedMeasureIndex, nextEvents));
+    setSelected((prev) => ({ ...prev, stepIndex: owningStep }));
+  };
+
   const handleSelectDuration = (len: number, nextRestMode: boolean) => {
     setInputLen(len);
     setIsRestMode(nextRestMode);
@@ -579,6 +603,7 @@ export function useTabEditing({
     handleDelete,
     handleDeleteEvent,
     handleToggleTie,
+    handleSetTechnique,
     handleSelectDuration,
   };
 }
