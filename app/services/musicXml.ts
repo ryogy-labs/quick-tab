@@ -18,18 +18,38 @@ import {
 // MusicXML format adapter (export only). Keeps the canonical model <->
 // format adapter boundary: nothing here is referenced by editing logic.
 
-const NOTE_TYPE_BY_LEN: Record<number, string> = {
-  96: "whole",
-  48: "half",
-  24: "quarter",
-  12: "eighth",
-  6: "16th",
-  3: "32nd",
-};
+const NOTE_TYPE_BY_LEN: Record<number, string> = Object.fromEntries(
+  (
+    [
+      [4, "whole"],
+      [2, "half"],
+      [1, "quarter"],
+      [1 / 2, "eighth"],
+      [1 / 4, "16th"],
+      [1 / 8, "32nd"],
+      [1 / 16, "64th"],
+    ] as const
+  )
+    .map(([quarters, type]) => [quarters * TICKS_PER_QUARTER, type])
+    .filter(([len]) => Number.isInteger(len))
+);
 
-// Rest gap decomposition chunks. 4 and 2 are triplet eighth/16th durations
-// (emitted with a 3:2 time-modification) so triplet remainders fill cleanly.
-const REST_CHUNKS = [96, 48, 24, 12, 6, 4, 3, 2] as const;
+// Rest gap decomposition chunks: plain durations down to the finest integral
+// subdivision, plus triplet eighth/16th durations (emitted with a 3:2
+// time-modification) so triplet remainders fill cleanly.
+const TRIPLET_REST_CHUNKS = new Set(
+  [TICKS_PER_QUARTER / 6, TICKS_PER_QUARTER / 12].filter(Number.isInteger)
+);
+const REST_CHUNKS = [
+  TICKS_PER_QUARTER * 4,
+  TICKS_PER_QUARTER * 2,
+  TICKS_PER_QUARTER,
+  TICKS_PER_QUARTER / 2,
+  TICKS_PER_QUARTER / 4,
+  TICKS_PER_QUARTER / 6,
+  TICKS_PER_QUARTER / 8,
+  TICKS_PER_QUARTER / 12,
+].filter(Number.isInteger);
 
 const SHARP_PITCHES: ReadonlyArray<{ step: string; alter: number }> = [
   { step: "C", alter: 0 }, { step: "C", alter: 1 }, { step: "D", alter: 0 },
@@ -114,7 +134,7 @@ const gapToRestsXml = (gap: number): string => {
   let remaining = gap;
   for (const chunk of REST_CHUNKS) {
     while (remaining >= chunk) {
-      const triplet = chunk === 4 || chunk === 2;
+      const triplet = TRIPLET_REST_CHUNKS.has(chunk);
       const baseLen = triplet ? chunk * 1.5 : chunk;
       const type = NOTE_TYPE_BY_LEN[baseLen] ?? "16th";
       parts.push(restXml(chunk, type, triplet));
@@ -122,8 +142,8 @@ const gapToRestsXml = (gap: number): string => {
     }
   }
   if (remaining > 0) {
-    // 1-tick remainder cannot be expressed at TPQ 24; emit it as a 32nd so
-    // the measure duration still sums correctly.
+    // A sub-chunk remainder cannot be expressed exactly at this resolution;
+    // emit it as a 32nd so the measure duration still sums correctly.
     parts.push(restXml(remaining, "32nd", false));
   }
   return parts.join("");

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
-import { DurationModifier, FLICK_DURATION_MAP } from "../tabModel";
+import { DurationModifier, FLICK_DURATION_MAP, TICKS_PER_QUARTER } from "../tabModel";
 
 export type FlickResult = {
   len: number;
@@ -36,7 +36,7 @@ const computeFlickResult = (
   verticalLevel: number,
   horizontalLevel: number
 ): FlickResult => {
-  const len = FLICK_DURATION_MAP[verticalLevel] ?? 24;
+  const len = FLICK_DURATION_MAP[verticalLevel] ?? TICKS_PER_QUARTER;
   const modifier: DurationModifier =
     horizontalLevel > 0 ? "dotted" : horizontalLevel < 0 ? "triplet" : "normal";
   return { len, modifier };
