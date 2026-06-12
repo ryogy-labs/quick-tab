@@ -223,6 +223,26 @@
   margin-bottom: 4px;
 }
 
+.trackBlock {
+  position: relative;
+  border-left: 3px solid transparent;
+}
+
+.trackBlockActive {
+  border-left-color: #7fb3e0;
+}
+
+.trackBlockLabel {
+  position: absolute;
+  top: 2px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a99ab;
+  z-index: 4;
+  pointer-events: none;
+}
+
 .system:last-child {
   margin-bottom: 0;
 }

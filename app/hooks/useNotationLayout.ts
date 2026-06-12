@@ -3,16 +3,18 @@
 import { useMemo } from "react";
 import {
   CellPosition,
+  GridCell,
   SIXTEENTH_STEPS,
   TabData,
-  getDataMeasureTicks,
-  getTrackMeasures,
   TabEvent,
+  TabMeasureV3,
   eventsToGrid,
   findEventAtStep,
   getCellFret,
+  getDataMeasureTicks,
   getEventOccupiedSteps,
   getMeasureDisplaySteps,
+  getTrackMeasures,
   getVisibleStepsForEvents,
   isMeasureOverflowing,
   isStepBlockedForNewStart,
@@ -24,28 +26,121 @@ export type DisplayCell = {
   slotIndex: number;
 };
 
+export type TrackLayout = {
+  measuresEvents: TabEvent[][];
+  measureDisplayStepsByMeasure: number[];
+  measureVisibleStepsByMeasure: number[][];
+  slotWidthsByMeasure: number[][];
+  slotOffsetsByMeasure: number[][];
+  measureWidthsByMeasure: number[];
+  measureGrids: GridCell[][][];
+  blockedStepsByMeasure: Set<number>[];
+  overflowingMeasureSet: Set<number>;
+};
+
+const computeTrackLayout = (
+  measures: TabMeasureV3[],
+  displayUnit: number,
+  measureTicks: number,
+  stepWidth: number
+): TrackLayout => {
+  const measuresEvents = measures.map((measure) => measure.events);
+  const measureDisplayStepsByMeasure = measures.map((measure) =>
+    getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
+  );
+  const measureVisibleStepsByMeasure = measureDisplayStepsByMeasure.map(
+    (displaySteps, measureIndex) =>
+      getVisibleStepsForEvents(
+        measures[measureIndex]?.events ?? [],
+        displaySteps,
+        displayUnit
+      )
+  );
+  // Proportional spacing: an event slot's width grows sub-linearly with its
+  // duration; empty grid slots stay at the base step width.
+  const slotWidthsByMeasure = measureVisibleStepsByMeasure.map(
+    (visibleSteps, measureIndex) => {
+      const events = measures[measureIndex]?.events ?? [];
+      return visibleSteps.map((step) => {
+        const event = findEventAtStep(events, step);
+        if (!event || event.step !== step) {
+          return stepWidth;
+        }
+        const units = Math.max(1, getEventOccupiedSteps(event)) / displayUnit;
+        return Math.max(stepWidth * 0.8, stepWidth * Math.pow(units, 0.62));
+      });
+    }
+  );
+  const slotOffsetsByMeasure = slotWidthsByMeasure.map((widths) => {
+    const offsets: number[] = [];
+    let cursor = 0;
+    widths.forEach((width) => {
+      offsets.push(cursor);
+      cursor += width;
+    });
+    return offsets;
+  });
+  const measureWidthsByMeasure = slotWidthsByMeasure.map((widths) =>
+    widths.reduce((sum, w) => sum + w, 0)
+  );
+  const measureGrids = measures.map((measure, index) =>
+    eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? measureTicks)
+  );
+  const blockedStepsByMeasure = measures.map((measure) => {
+    const set = new Set<number>();
+    const displaySteps = getMeasureDisplaySteps(measure.events, displayUnit, measureTicks);
+    getVisibleStepsForEvents(measure.events, displaySteps, displayUnit).forEach((step) => {
+      if (isStepBlockedForNewStart(measure.events, step, displaySteps)) {
+        set.add(step);
+      }
+    });
+    return set;
+  });
+  const overflowingMeasureSet = new Set(
+    measures
+      .map((measure, index) =>
+        isMeasureOverflowing(measure.events, measureTicks) ? index : -1
+      )
+      .filter((index) => index >= 0)
+  );
+
+  return {
+    measuresEvents,
+    measureDisplayStepsByMeasure,
+    measureVisibleStepsByMeasure,
+    slotWidthsByMeasure,
+    slotOffsetsByMeasure,
+    measureWidthsByMeasure,
+    measureGrids,
+    blockedStepsByMeasure,
+    overflowingMeasureSet,
+  };
+};
+
 type UseNotationLayoutParams = {
   tabData: TabData;
   trackIndex: number;
+  /** Tracks taking part in width alignment (the visible ones). */
+  visibleTrackIndices: number[];
   selected: CellPosition;
   inputLen: number;
   isRestMode: boolean;
-  tabLabelWidth: number;
   tabMeasureWidth: number;
 };
 
 /**
- * Derives all display-layout state from tabData + selection:
- * display unit, per-measure step/slot tables, grids, blocked steps,
- * overflow set, and horizontal measure positions.
+ * Derives display-layout state for every track plus active-track selection
+ * aliases: display unit, per-measure step/slot tables, grids, blocked steps,
+ * overflow sets, and the shared (aligned) measure widths across the
+ * visible tracks.
  */
 export function useNotationLayout({
   tabData,
   trackIndex,
+  visibleTrackIndices,
   selected,
   inputLen,
   isRestMode,
-  tabLabelWidth,
   tabMeasureWidth,
 }: UseNotationLayoutParams) {
   const measureTicks = getDataMeasureTicks(tabData);
@@ -71,15 +166,22 @@ export function useNotationLayout({
     selectedEvent && "rest" in selectedEvent && selectedEvent.rest ? true : isRestMode;
   const totalMeasures = trackMeasures.length;
 
-  const minEventLenAcrossMeasures = trackMeasures.reduce((globalMin, measure) => {
-    const localMin = measure.events.reduce(
-      (min, event) => Math.min(min, Math.max(1, event.len)),
-      measureTicks
-    );
-    return Math.min(globalMin, localMin);
-  }, measureTicks);
+  // Display unit derives from the shortest event across all tracks so the
+  // empty-grid granularity matches everywhere.
+  const minEventLenAcrossTracks = tabData.tracks.reduce(
+    (globalMin, track) =>
+      track.measures.reduce(
+        (trackMin, measure) =>
+          measure.events.reduce(
+            (min, event) => Math.min(min, Math.max(1, event.len)),
+            trackMin
+          ),
+        globalMin
+      ),
+    measureTicks
+  );
   const shouldRenderEveryStep = activeInputLen > SIXTEENTH_STEPS;
-  const effectiveMinLen = Math.min(minEventLenAcrossMeasures, activeInputLen);
+  const effectiveMinLen = Math.min(minEventLenAcrossTracks, activeInputLen);
   const displayUnit =
     shouldRenderEveryStep || effectiveMinLen <= SIXTEENTH_STEPS
       ? SIXTEENTH_STEPS
@@ -88,108 +190,53 @@ export function useNotationLayout({
   // 3/4 measure renders narrower than a 4/4 one instead of stretching.
   const stepWidth = (tabMeasureWidth / 16) * (displayUnit / SIXTEENTH_STEPS);
 
-  const blockedStepsByMeasure = useMemo(
+  const trackLayouts = useMemo<TrackLayout[]>(
     () =>
-      trackMeasures.map((measure) => {
-        const visibleSteps = getVisibleStepsForEvents(
-          measure.events,
-          getMeasureDisplaySteps(measure.events, displayUnit, measureTicks),
-          displayUnit
-        );
-        const set = new Set<number>();
-        visibleSteps.forEach((step) => {
-          if (
-            isStepBlockedForNewStart(
-              measure.events,
-              step,
-              getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
-            )
-          ) {
-            set.add(step);
-          }
-        });
-        return set;
-      }),
-    [displayUnit, measureTicks, trackMeasures]
-  );
-  const overflowingMeasureSet = useMemo(
-    () =>
-      new Set(
-        trackMeasures
-          .map((measure, index) =>
-            isMeasureOverflowing(measure.events, measureTicks) ? index : -1
-          )
-          .filter((index) => index >= 0)
+      tabData.tracks.map((track) =>
+        computeTrackLayout(track.measures, displayUnit, measureTicks, stepWidth)
       ),
-    [measureTicks, trackMeasures]
-  );
-  const measureDisplayStepsByMeasure = useMemo(
-    () =>
-      trackMeasures.map((measure) =>
-        getMeasureDisplaySteps(measure.events, displayUnit, measureTicks)
-      ),
-    [displayUnit, measureTicks, trackMeasures]
-  );
-  const measureVisibleStepsByMeasure = useMemo(
-    () =>
-      measureDisplayStepsByMeasure.map((displaySteps, measureIndex) =>
-        getVisibleStepsForEvents(
-          trackMeasures[measureIndex]?.events ?? [],
-          displaySteps,
-          displayUnit
-        )
-      ),
-    [displayUnit, measureDisplayStepsByMeasure, trackMeasures]
+    [displayUnit, measureTicks, stepWidth, tabData.tracks]
   );
 
-  // Proportional spacing: an event slot's width grows sub-linearly with its
-  // duration; empty grid slots stay at the base step width.
-  const slotWidthsByMeasure = useMemo(
+  // Shared measure widths align bar lines across the visible tracks.
+  const sharedMeasureWidths = useMemo(() => {
+    const participating = new Set([...visibleTrackIndices, trackIndex]);
+    const count = trackLayouts[trackIndex]?.measureWidthsByMeasure.length ?? 0;
+    return Array.from({ length: count }, (_, measureIndex) =>
+      Math.max(
+        stepWidth,
+        ...trackLayouts
+          .filter((_, index) => participating.has(index))
+          .map((layout) => layout.measureWidthsByMeasure[measureIndex] ?? 0)
+      )
+    );
+  }, [stepWidth, trackIndex, trackLayouts, visibleTrackIndices]);
+
+  const activeLayout = useMemo<TrackLayout>(
     () =>
-      measureVisibleStepsByMeasure.map((visibleSteps, measureIndex) => {
-        const events = trackMeasures[measureIndex]?.events ?? [];
-        return visibleSteps.map((step) => {
-          const event = findEventAtStep(events, step);
-          if (!event || event.step !== step) {
-            return stepWidth;
-          }
-          const units = Math.max(1, getEventOccupiedSteps(event)) / displayUnit;
-          return Math.max(stepWidth * 0.8, stepWidth * Math.pow(units, 0.62));
-        });
-      }),
-    [displayUnit, measureVisibleStepsByMeasure, stepWidth, trackMeasures]
+      trackLayouts[trackIndex] ??
+      trackLayouts[0] ??
+      computeTrackLayout([], displayUnit, measureTicks, stepWidth),
+    [displayUnit, measureTicks, stepWidth, trackIndex, trackLayouts]
   );
-  const slotOffsetsByMeasure = useMemo(
-    () =>
-      slotWidthsByMeasure.map((widths) => {
-        const offsets: number[] = [];
-        let cursor = 0;
-        widths.forEach((width) => {
-          offsets.push(cursor);
-          cursor += width;
-        });
-        return offsets;
-      }),
-    [slotWidthsByMeasure]
-  );
-  const measureWidthsByMeasure = useMemo(
-    () => slotWidthsByMeasure.map((widths) => widths.reduce((sum, w) => sum + w, 0)),
-    [slotWidthsByMeasure]
-  );
+
+  const blockedStepsByMeasure = activeLayout.blockedStepsByMeasure;
+  const measureDisplayStepsByMeasure = activeLayout.measureDisplayStepsByMeasure;
+  const measureVisibleStepsByMeasure = activeLayout.measureVisibleStepsByMeasure;
+  const slotWidthsByMeasure = activeLayout.slotWidthsByMeasure;
+  const slotOffsetsByMeasure = activeLayout.slotOffsetsByMeasure;
+  const measureWidthsByMeasure = activeLayout.measureWidthsByMeasure;
+  const measureGrids = activeLayout.measureGrids;
+  const measuresEvents = activeLayout.measuresEvents;
+  const overflowingMeasureSet = activeLayout.overflowingMeasureSet;
   const measureDisplaySlotsByMeasure = useMemo(
     () => measureVisibleStepsByMeasure.map((steps) => steps.length),
     [measureVisibleStepsByMeasure]
   );
+
   const selectedMeasureDisplaySteps =
     measureDisplayStepsByMeasure[selectedMeasureIndex] ?? measureTicks;
   const blockedStepSet = blockedStepsByMeasure[selectedMeasureIndex] ?? new Set<number>();
-  const measureGrids = useMemo(
-    () =>
-      trackMeasures.map((measure, index) =>
-        eventsToGrid(measure.events, measureDisplayStepsByMeasure[index] ?? measureTicks)
-      ),
-    [measureDisplayStepsByMeasure, measureTicks, trackMeasures]
-  );
   const displayCells = useMemo<DisplayCell[]>(
     () =>
       measureVisibleStepsByMeasure.flatMap((visibleSteps, measureIndex) =>
@@ -201,26 +248,23 @@ export function useNotationLayout({
       ),
     [measureVisibleStepsByMeasure]
   );
-  const measuresEvents = useMemo<TabEvent[][]>(
-    () => trackMeasures.map((measure) => measure.events),
-    [trackMeasures]
-  );
-  const measureStartXs = useMemo(() => {
-    const starts = [tabLabelWidth];
-    let cursor = tabLabelWidth;
-    measureDisplaySlotsByMeasure.forEach((slotCount) => {
-      cursor += slotCount * stepWidth;
-      starts.push(cursor);
+
+  // Union of overflow across all tracks, for shared bar-line warnings.
+  const anyTrackOverflowSet = useMemo(() => {
+    const set = new Set<number>();
+    trackLayouts.forEach((layout) => {
+      layout.overflowingMeasureSet.forEach((index) => set.add(index));
     });
-    return starts;
-  }, [measureDisplaySlotsByMeasure, stepWidth, tabLabelWidth]);
-  const timelineWidth = measureStartXs[measureStartXs.length - 1] ?? tabLabelWidth;
+    return set;
+  }, [trackLayouts]);
 
   return {
     measureTicks,
-    slotWidthsByMeasure,
-    slotOffsetsByMeasure,
-    measureWidthsByMeasure,
+    displayUnit,
+    stepWidth,
+    trackLayouts,
+    sharedMeasureWidths,
+    anyTrackOverflowSet,
     selectedMeasureIndex,
     events,
     selectedEvent,
@@ -231,20 +275,19 @@ export function useNotationLayout({
     activeInputLen,
     activeIsRestMode,
     totalMeasures,
-    displayUnit,
-    stepWidth,
     blockedStepsByMeasure,
     blockedStepSet,
     overflowingMeasureSet,
     measureDisplayStepsByMeasure,
     measureVisibleStepsByMeasure,
     measureDisplaySlotsByMeasure,
+    slotWidthsByMeasure,
+    slotOffsetsByMeasure,
+    measureWidthsByMeasure,
     selectedMeasureDisplaySteps,
     measureGrids,
     displayCells,
     measuresEvents,
-    measureStartXs,
-    timelineWidth,
   };
 }
 
@@ -257,8 +300,6 @@ export type SystemLayout = {
   startXs: number[];
   /** Total system width including the leading label area. */
   width: number;
-  /** Total number of visible slots across the system's measures. */
-  slotCount: number;
 };
 
 /**
@@ -268,7 +309,6 @@ export type SystemLayout = {
  */
 export const computeSystems = (
   measureWidths: number[],
-  slotsByMeasure: number[],
   labelWidth: number,
   availableWidth: number
 ): SystemLayout[] => {
@@ -282,13 +322,11 @@ export const computeSystems = (
     }
     const startXs = [labelWidth];
     let cursor = labelWidth;
-    let slotCount = 0;
     current.forEach((measureIndex) => {
       cursor += measureWidths[measureIndex] ?? 0;
-      slotCount += slotsByMeasure[measureIndex] ?? 0;
       startXs.push(cursor);
     });
-    systems.push({ measureIndices: current, startXs, width: cursor, slotCount });
+    systems.push({ measureIndices: current, startXs, width: cursor });
     current = [];
     currentWidth = 0;
   };
@@ -304,5 +342,5 @@ export const computeSystems = (
 
   return systems.length > 0
     ? systems
-    : [{ measureIndices: [0], startXs: [labelWidth, labelWidth], width: labelWidth, slotCount: 0 }];
+    : [{ measureIndices: [0], startXs: [labelWidth, labelWidth], width: labelWidth }];
 };

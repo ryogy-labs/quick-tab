@@ -1574,6 +1574,41 @@ export type CursorAdvanceResult = {
   didAppendMeasure: boolean;
 };
 
+/** Appends a new empty track, padded to the shared measure count. */
+export const addTrack = (data: TabData, name?: string): TabData =>
+  sanitizeTabData(
+    {
+      ...data,
+      tracks: [
+        ...data.tracks,
+        {
+          name: name ?? `Track ${data.tracks.length + 1}`,
+          tuning: [...TUNING],
+          measures: [],
+        },
+      ],
+    },
+    true
+  );
+
+/** Removes a track; the last remaining track cannot be deleted. */
+export const deleteTrack = (data: TabData, trackIndex: number): TabData => {
+  if (data.tracks.length <= 1) {
+    return data;
+  }
+  return sanitizeTabData(
+    { ...data, tracks: data.tracks.filter((_, index) => index !== trackIndex) },
+    true
+  );
+};
+
+export const renameTrack = (data: TabData, trackIndex: number, name: string): TabData => ({
+  ...data,
+  tracks: data.tracks.map((track, index) =>
+    index === trackIndex ? { ...track, name: name.trim() === "" ? track.name : name.trim() } : track
+  ),
+});
+
 /** Appends one empty measure to every track. */
 export const appendEmptyMeasure = (data: TabData): TabData => ({
   ...data,

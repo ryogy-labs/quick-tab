@@ -7,6 +7,7 @@ import FretboardInput from "./components/FretboardInput";
 import RestFlickButton from "./components/RestFlickButton";
 import DropdownMenu from "./components/DropdownMenu";
 import TechniquePalette from "./components/TechniquePalette";
+import TrackBar from "./components/TrackBar";
 import { usePlayback, PlayCursor } from "./hooks/usePlayback";
 import { useTabStorage } from "./hooks/useTabStorage";
 import { useUndoRedo } from "./hooks/useUndoRedo";
@@ -33,11 +34,14 @@ import {
   TabData,
   clampTempo,
   createEmptyTabData,
+  addTrack,
+  deleteTrack,
   findEventAtStep,
   findOwningEventStep,
   getMeasureEvents,
   getNextCursorPositionWithAutoAppend,
   isStepInRange,
+  renameTrack,
 } from "./tabModel";
 
 const TAB_LABEL_WIDTH = 92;
@@ -62,8 +66,18 @@ export default function Home() {
   const [autoShift, setAutoShift] = useState(true);
   const [tieInputMode, setTieInputMode] = useState(false);
 
-  // PR① keeps a single fixed track; the track bar arrives in the next PR.
-  const activeTrackIndex = 0;
+  const [activeTrackIndex, setActiveTrackIndex] = useState(0);
+  // Hidden tracks are a view preference, not part of the canonical model.
+  const [hiddenTracks, setHiddenTracks] = useState<Set<number>>(new Set());
+  const trackCount = tabData.tracks.length;
+  const safeActiveTrackIndex = Math.max(0, Math.min(trackCount - 1, activeTrackIndex));
+  const visibleTrackIndices = useMemo(
+    () =>
+      tabData.tracks
+        .map((_, index) => index)
+        .filter((index) => index === safeActiveTrackIndex || !hiddenTracks.has(index)),
+    [hiddenTracks, safeActiveTrackIndex, tabData.tracks]
+  );
 
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -103,18 +117,18 @@ export default function Home() {
 
   const layout = useNotationLayout({
     tabData,
-    trackIndex: activeTrackIndex,
+    trackIndex: safeActiveTrackIndex,
+    visibleTrackIndices,
     selected,
     inputLen,
     isRestMode,
-    tabLabelWidth,
     tabMeasureWidth,
   });
   const {
     measureTicks,
-    slotWidthsByMeasure,
-    slotOffsetsByMeasure,
-    measureWidthsByMeasure,
+    trackLayouts,
+    sharedMeasureWidths,
+    anyTrackOverflowSet,
     selectedMeasureIndex,
     events,
     selectedEvent,
@@ -131,10 +145,7 @@ export default function Home() {
     overflowingMeasureSet,
     measureDisplayStepsByMeasure,
     measureVisibleStepsByMeasure,
-    measureDisplaySlotsByMeasure,
     selectedMeasureDisplaySteps,
-    measureGrids,
-    measuresEvents,
   } = layout;
 
   const selectedNoteTieActive = selectedNote?.tie === true;
@@ -147,7 +158,7 @@ export default function Home() {
 
   const { isPlaying, playCursor, handlePlay, stopPlayback, playNotePreview } = usePlayback({
     tabData,
-    trackIndex: activeTrackIndex,
+    trackIndex: safeActiveTrackIndex,
     selectedMeasureIndex,
     overflowingMeasureSet,
     onPlaybackEnd: useCallback(() => {
@@ -177,7 +188,7 @@ export default function Home() {
 
   const getRangeSelectableStep = (measureIndex: number, stepIndex: number): number => {
     const clampedStep = getClampedDisplayStep(stepIndex, measureIndex);
-    const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
+    const measureEvents = getMeasureEvents(tabData, safeActiveTrackIndex, measureIndex);
     const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     return findOwningEventStep(measureEvents, clampedStep, displaySteps);
   };
@@ -190,7 +201,7 @@ export default function Home() {
     clearRangeSelection,
     handleRangeMouseDown,
     handleRangeMouseEnter,
-  } = useRangeSelection({ gridRef, getRangeSelectableStep });
+  } = useRangeSelection({ gridRef, getRangeSelectableStep, activeTrackIndex: safeActiveTrackIndex });
 
   const setSingleCellSelection = (next: CellPosition) => {
     setSelected(next);
@@ -237,7 +248,7 @@ export default function Home() {
         selectedEvent && selectedEvent.step === current ? selectedEvent.len : displayUnit;
       const result = getNextCursorPositionWithAutoAppend(
         tabData,
-        activeTrackIndex,
+        safeActiveTrackIndex,
         { ...selected, stepIndex: current },
         advanceAmount,
         isPlaying,
@@ -283,7 +294,7 @@ export default function Home() {
     handleSetTechnique,
   } = useTabEditing({
     tabData,
-    trackIndex: activeTrackIndex,
+    trackIndex: safeActiveTrackIndex,
     commitTabData,
     selected,
     setSelected,
@@ -327,7 +338,7 @@ export default function Home() {
     handlePasteRange,
   } = useMeasureOps({
     tabData,
-    trackIndex: activeTrackIndex,
+    trackIndex: safeActiveTrackIndex,
     commitTabData,
     isPlaying,
     selected,
@@ -372,6 +383,69 @@ export default function Home() {
     const nextTempo = clampTempo(parsed);
     commitTabData({ ...tabData, tempo: nextTempo });
   };
+
+  const handleSelectTrack = (index: number) => {
+    if (isPlaying) {
+      return;
+    }
+    setActiveTrackIndex(Math.max(0, Math.min(trackCount - 1, index)));
+  };
+
+  const handleToggleTrackVisible = (index: number) => {
+    setHiddenTracks((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const handleAddTrack = () => {
+    if (isPlaying) {
+      return;
+    }
+    commitTabData(addTrack(tabData));
+    setActiveTrackIndex(trackCount);
+  };
+
+  const handleRenameTrack = useCallback((index: number) => {
+    if (isPlaying) {
+      return;
+    }
+    const current = tabData.tracks[index]?.name ?? "";
+    const name = window.prompt("Track name", current);
+    if (name === null) {
+      return;
+    }
+    commitTabData(renameTrack(tabData, index, name));
+  }, [commitTabData, isPlaying, tabData]);
+
+  const handleDeleteTrack = useCallback(() => {
+    if (isPlaying || trackCount <= 1) {
+      return;
+    }
+    const name = tabData.tracks[safeActiveTrackIndex]?.name ?? "";
+    if (!window.confirm(`Delete track "${name}"?`)) {
+      return;
+    }
+    commitTabData(deleteTrack(tabData, safeActiveTrackIndex));
+    // Re-key hidden flags to the shifted indices.
+    setHiddenTracks((prev) => {
+      const next = new Set<number>();
+      prev.forEach((index) => {
+        if (index < safeActiveTrackIndex) {
+          next.add(index);
+        } else if (index > safeActiveTrackIndex) {
+          next.add(index - 1);
+        }
+      });
+      return next;
+    });
+    setActiveTrackIndex(Math.max(0, safeActiveTrackIndex - 1));
+  }, [commitTabData, isPlaying, safeActiveTrackIndex, tabData, trackCount]);
 
   useKeyboardShortcuts({
     onUndo: handleUndo,
@@ -470,7 +544,7 @@ export default function Home() {
       return false;
     }
 
-    const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
+    const measureEvents = getMeasureEvents(tabData, safeActiveTrackIndex, measureIndex);
     const displaySteps = measureDisplayStepsByMeasure[measureIndex] ?? measureTicks;
     const owningStep = findOwningEventStep(measureEvents, stepIndex, displaySteps);
     return isStepInRange(selectedRange, measureIndex, owningStep);
@@ -496,14 +570,12 @@ export default function Home() {
         ? notationContainerWidth / notationScale - padding
         : fallbackWidth;
     return computeSystems(
-      measureWidthsByMeasure,
-      measureDisplaySlotsByMeasure,
+      sharedMeasureWidths,
       tabLabelWidth,
       availableWidth
     );
   }, [
-    measureDisplaySlotsByMeasure,
-    measureWidthsByMeasure,
+    sharedMeasureWidths,
     notationContainerWidth,
     notationScale,
     stepWidth,
@@ -583,6 +655,9 @@ export default function Home() {
     { type: "button" as const, label: "Insert Measure", onClick: handleInsertMeasure, disabled: isPlaying },
     { type: "button" as const, label: "Delete Measure", onClick: handleDeleteMeasure, disabled: isPlaying || totalMeasures <= 1 },
     { type: "button" as const, label: "Duplicate Measure", onClick: handleDuplicateMeasure, disabled: isPlaying },
+    { type: "separator" as const },
+    { type: "button" as const, label: "Rename Track", onClick: () => handleRenameTrack(safeActiveTrackIndex), disabled: isPlaying },
+    { type: "button" as const, label: "Delete Track", onClick: handleDeleteTrack, disabled: isPlaying || trackCount <= 1 },
     { type: "separator" as const },
     { type: "button" as const, label: "Copy Measure", onClick: handleCopyMeasure },
     { type: "button" as const, label: "Paste Measure", onClick: handlePasteMeasure, disabled: isPlaying || measureClipboard === null },
@@ -667,7 +742,7 @@ export default function Home() {
         </div>
       ),
     },
-  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile, handleImportMusicXmlFile]);
+  ], [autoShift, tabData, canUndo, canRedo, isPlaying, totalMeasures, trackCount, safeActiveTrackIndex, handleRenameTrack, handleDeleteTrack, measureClipboard, selectedRange, rangeClipboard, commitTabData, handleUndo, handleRedo, handleAddMeasure, handleInsertMeasure, handleDeleteMeasure, handleDuplicateMeasure, handleCopyMeasure, handlePasteMeasure, handleCopyRange, handlePasteRange, handleExport, handleExportMusicXml, handleImportFile, handleImportMusicXmlFile]);
 
   return (
     <div className={styles.page}>
@@ -769,6 +844,17 @@ export default function Home() {
           <DropdownMenu items={menuItems} />
         </div>
 
+        <TrackBar
+          trackNames={tabData.tracks.map((track) => track.name)}
+          activeIndex={safeActiveTrackIndex}
+          hiddenTracks={hiddenTracks}
+          disabled={isPlaying}
+          onSelect={handleSelectTrack}
+          onToggleVisible={handleToggleTrackVisible}
+          onAdd={handleAddTrack}
+          onRename={handleRenameTrack}
+        />
+
         {/* Notation: Staff + TAB */}
         <div className={styles.notationFrame}>
           <div className={styles.zoomControl}>
@@ -784,189 +870,253 @@ export default function Home() {
           </div>
           <div ref={timelineScrollRef} className={styles.notationScroll}>
             <div className={styles.notationContent} style={notationStyle}>
-              {systems.map((system, systemIndex) => {
-                const systemMeasuresEvents = system.measureIndices.map(
-                  (measureIndex) => measuresEvents[measureIndex] ?? []
-                );
-                const systemDisplaySlots = system.measureIndices.map(
-                  (measureIndex) => measureDisplaySlotsByMeasure[measureIndex] ?? 0
-                );
-                const systemOverflowing = new Set(
-                  system.measureIndices
-                    .map((measureIndex, localIndex) =>
-                      overflowingMeasureSet.has(measureIndex) ? localIndex : -1
-                    )
-                    .filter((localIndex) => localIndex >= 0)
-                );
-                const cursorLocalMeasure =
-                  playCursor !== null
-                    ? system.measureIndices.indexOf(playCursor.measureIndex)
-                    : -1;
-                const systemCursor =
-                  cursorLocalMeasure >= 0 && playCursor !== null
-                    ? { measureIndex: cursorLocalMeasure, stepIndex: playCursor.stepIndex }
-                    : null;
-                const rowTemplate = `${tabLabelWidth}px ${system.measureIndices
-                  .flatMap((measureIndex) => slotWidthsByMeasure[measureIndex] ?? [])
-                  .map((width) => `${width}px`)
-                  .join(" ")}`;
-                const systemSlots = system.measureIndices.map((measureIndex, localIndex) =>
-                  (measureVisibleStepsByMeasure[measureIndex] ?? []).map((step, slotIndex) => ({
-                    step,
-                    x:
-                      (system.startXs[localIndex] ?? tabLabelWidth) +
-                      (slotOffsetsByMeasure[measureIndex]?.[slotIndex] ?? 0),
-                    width: slotWidthsByMeasure[measureIndex]?.[slotIndex] ?? stepWidth,
-                  }))
-                );
-                return (
-                  <div
-                    key={`system-${systemIndex}`}
-                    className={styles.system}
-                    ref={(el) => {
-                      systemRefs.current[systemIndex] = el;
-                    }}
-                  >
-                    <div className={styles.staffSection}>
-                      <StaffPreview
-                        measuresEvents={systemMeasuresEvents}
-                        currentCursor={systemCursor}
-                        stepWidth={stepWidth}
-                        stepUnit={displayUnit}
-                        measureDisplaySlots={systemDisplaySlots}
-                        measureStartXs={system.startXs}
-                        timelineWidth={system.width}
-                        overflowingMeasures={systemOverflowing}
-                        showBarLines={true}
-                        keySignature={tabData.key}
-                        firstMeasureNumber={(system.measureIndices[0] ?? 0) + 1}
-                        slotsByMeasure={systemSlots}
-                      />
-                    </div>
-                    <div className={styles.gridSection}>
-                      <div className={styles.measureBarOverlay} aria-hidden="true">
-                        {system.startXs.map((left, i) => {
-                          const isEnd = i === system.measureIndices.length;
-                          const boundaryMeasureIndex = isEnd
-                            ? system.measureIndices[system.measureIndices.length - 1]
-                            : system.measureIndices[i];
-                          return (
-                            <div
-                              key={`grid-barline-${systemIndex}-${i}`}
-                              className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${
-                                overflowingMeasureSet.has(boundaryMeasureIndex ?? -1)
-                                  ? styles.measureOverflow
-                                  : ""
-                              } ${isEnd ? styles.measureBarLineEnd : ""}`}
-                              style={{ left: `${left}px` }}
-                            />
-                          );
-                        })}
-                      </div>
+              {systems.map((system, systemIndex) => (
+                <div
+                  key={`system-${systemIndex}`}
+                  className={styles.system}
+                  ref={(el) => {
+                    systemRefs.current[systemIndex] = el;
+                  }}
+                >
+                  {visibleTrackIndices.map((trackIdx) => {
+                    const trackLayout = trackLayouts[trackIdx];
+                    if (!trackLayout) {
+                      return null;
+                    }
+                    const isActiveTrack = trackIdx === safeActiveTrackIndex;
+                    const systemMeasuresEvents = system.measureIndices.map(
+                      (measureIndex) => trackLayout.measuresEvents[measureIndex] ?? []
+                    );
+                    const systemDisplaySlots = system.measureIndices.map(
+                      (measureIndex) =>
+                        trackLayout.measureVisibleStepsByMeasure[measureIndex]?.length ?? 0
+                    );
+                    const systemOverflowing = new Set(
+                      system.measureIndices
+                        .map((measureIndex, localIndex) =>
+                          trackLayout.overflowingMeasureSet.has(measureIndex) ? localIndex : -1
+                        )
+                        .filter((localIndex) => localIndex >= 0)
+                    );
+                    const cursorLocalMeasure =
+                      playCursor !== null
+                        ? system.measureIndices.indexOf(playCursor.measureIndex)
+                        : -1;
+                    const systemCursor =
+                      cursorLocalMeasure >= 0 && playCursor !== null
+                        ? { measureIndex: cursorLocalMeasure, stepIndex: playCursor.stepIndex }
+                        : null;
+                    // Row template: per-measure slot widths plus a filler that
+                    // absorbs the difference to the shared (aligned) width.
+                    const templateParts: string[] = [`${tabLabelWidth}px`];
+                    system.measureIndices.forEach((measureIndex) => {
+                      const widths = trackLayout.slotWidthsByMeasure[measureIndex] ?? [];
+                      widths.forEach((width) => templateParts.push(`${width}px`));
+                      const filler =
+                        (sharedMeasureWidths[measureIndex] ?? 0) -
+                        (trackLayout.measureWidthsByMeasure[measureIndex] ?? 0);
+                      templateParts.push(`${Math.max(0, filler)}px`);
+                    });
+                    const rowTemplate = templateParts.join(" ");
+                    const systemSlots = system.measureIndices.map((measureIndex, localIndex) =>
+                      (trackLayout.measureVisibleStepsByMeasure[measureIndex] ?? []).map(
+                        (step, slotIndex) => ({
+                          step,
+                          x:
+                            (system.startXs[localIndex] ?? tabLabelWidth) +
+                            (trackLayout.slotOffsetsByMeasure[measureIndex]?.[slotIndex] ?? 0),
+                          width:
+                            trackLayout.slotWidthsByMeasure[measureIndex]?.[slotIndex] ?? stepWidth,
+                        })
+                      )
+                    );
+                    return (
                       <div
-                        className={styles.grid}
-                        ref={systemIndex === 0 ? gridRef : undefined}
+                        key={`system-${systemIndex}-track-${trackIdx}`}
+                        className={`${styles.trackBlock} ${
+                          isActiveTrack ? styles.trackBlockActive : ""
+                        }`.trim()}
                       >
-                        {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
-                          <div
-                            key={`row-${systemIndex}-${rowIndex}`}
-                            className={styles.row}
-                            style={{ gridTemplateColumns: rowTemplate }}
-                          >
-                            <div className={styles.stringLabel}>
-                              {TUNING[rowIndex]}
-                            </div>
-                            {system.measureIndices.flatMap((measureIndex) =>
-                              (measureVisibleStepsByMeasure[measureIndex] ?? []).map((stepIndex) => {
-                                const measureEvents = getMeasureEvents(tabData, activeTrackIndex, measureIndex);
-                                const cell = measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
-                                const cellEvent = findEventAtStep(measureEvents, stepIndex);
-                                const cellNote =
-                                  cellEvent && !("rest" in cellEvent && cellEvent.rest)
-                                    ? cellEvent.notes.find((note) => note.string === rowIndex + 1)
-                                    : undefined;
-                                const hasTie = cellNote?.tie === true;
-                                const techniqueGlyph = cellNote?.technique
-                                  ? TECHNIQUE_GLYPHS[cellNote.technique]
-                                  : "";
-                                const displayValue =
-                                  cell?.fret !== null && cell?.fret !== undefined
-                                    ? `${hasTie ? `(${cell.fret})` : String(cell.fret)}${techniqueGlyph}`
-                                    : "";
-                                const hasDisplayValue = displayValue !== "";
-                                const isSelected =
-                                  selected.measureIndex === measureIndex &&
-                                  selected.rowIndex === rowIndex &&
-                                  selected.stepIndex === stepIndex;
-                                const isCurrentStep =
-                                  playCursor?.measureIndex === measureIndex &&
-                                  playCursor?.stepIndex === stepIndex;
-                                const isStepHighlighted =
-                                  selectedRange !== null
-                                    ? isRangeHighlightedStep(measureIndex, stepIndex)
-                                    : isDurationPreviewStep(measureIndex, stepIndex);
-                                const isBlocked =
-                                  blockedStepsByMeasure[measureIndex]?.has(stepIndex) ?? false;
-                                const isOverflowingMeasure = overflowingMeasureSet.has(measureIndex);
-                                return (
-                                  <button
-                                    key={`cell-${measureIndex}-${rowIndex}-${stepIndex}`}
-                                    type="button"
-                                    data-measure-index={measureIndex}
-                                    data-step-index={stepIndex}
-                                    className={`${styles.cell} ${
-                                      isSelected ? styles.selected : ""
-                                    } ${isStepHighlighted ? styles.durationPreview : ""} ${
-                                      isDraggingRange ? styles.dragSelecting : ""
-                                    } ${isCurrentStep ? styles.playing : ""} ${
-                                      isBlocked ? styles.blocked : ""
-                                    } ${isOverflowingMeasure ? styles.measureOverflow : ""
-                                    }`.trim()}
-                                    onMouseDown={(event) => {
-                                      event.preventDefault();
-                                      handleRangeMouseDown(measureIndex, stepIndex);
-                                    }}
-                                    onMouseEnter={() => handleRangeMouseEnter(measureIndex, stepIndex)}
-                                    onTouchStart={(event) => {
-                                      event.preventDefault();
-                                      handleRangeMouseDown(measureIndex, stepIndex);
-                                    }}
-                                    onClick={() => {
-                                      if (didDragRangeRef.current) {
-                                        didDragRangeRef.current = false;
-                                        return;
-                                      }
-                                      if (isBlocked) {
-                                        const owningStep = findOwningEventStep(
-                                          measureEvents,
-                                          stepIndex,
-                                          measureDisplayStepsByMeasure[measureIndex] ?? measureTicks
-                                        );
-                                        setSingleCellSelection({ measureIndex, rowIndex, stepIndex: owningStep });
-                                        return;
-                                      }
-                                      setSingleCellSelection({ measureIndex, rowIndex, stepIndex });
-                                    }}
-                                  >
-                                    <span
-                                      className={`${styles.cellValue} ${
-                                        hasDisplayValue ? styles.cellValueFilled : ""
-                                      } ${hasTie ? styles.cellValueTied : ""
-                                      }`.trim()}
-                                    >
-                                      {displayValue}
-                                    </span>
-                                  </button>
-                                );
-                              })
-                            )}
+                        {visibleTrackIndices.length > 1 && (
+                          <div className={styles.trackBlockLabel}>
+                            {tabData.tracks[trackIdx]?.name ?? `Track ${trackIdx + 1}`}
                           </div>
-                        ))}
+                        )}
+                        <div className={styles.staffSection}>
+                          <StaffPreview
+                            measuresEvents={systemMeasuresEvents}
+                            currentCursor={systemCursor}
+                            stepWidth={stepWidth}
+                            stepUnit={displayUnit}
+                            measureDisplaySlots={systemDisplaySlots}
+                            measureStartXs={system.startXs}
+                            timelineWidth={system.width}
+                            overflowingMeasures={systemOverflowing}
+                            showBarLines={true}
+                            keySignature={tabData.key}
+                            firstMeasureNumber={(system.measureIndices[0] ?? 0) + 1}
+                            slotsByMeasure={systemSlots}
+                          />
+                        </div>
+                        <div className={styles.gridSection}>
+                          <div className={styles.measureBarOverlay} aria-hidden="true">
+                            {system.startXs.map((left, i) => {
+                              const isEnd = i === system.measureIndices.length;
+                              const boundaryMeasureIndex = isEnd
+                                ? system.measureIndices[system.measureIndices.length - 1]
+                                : system.measureIndices[i];
+                              return (
+                                <div
+                                  key={`grid-barline-${systemIndex}-${trackIdx}-${i}`}
+                                  className={`${styles.measureBarLine} ${styles.measureBarLineFullHeight} ${
+                                    anyTrackOverflowSet.has(boundaryMeasureIndex ?? -1)
+                                      ? styles.measureOverflow
+                                      : ""
+                                  } ${isEnd ? styles.measureBarLineEnd : ""}`}
+                                  style={{ left: `${left}px` }}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div
+                            className={styles.grid}
+                            ref={systemIndex === 0 && isActiveTrack ? gridRef : undefined}
+                          >
+                            {Array.from({ length: STRINGS_COUNT }, (_, rowIndex) => (
+                              <div
+                                key={`row-${systemIndex}-${trackIdx}-${rowIndex}`}
+                                className={styles.row}
+                                style={{ gridTemplateColumns: rowTemplate }}
+                              >
+                                <div className={styles.stringLabel}>
+                                  {(tabData.tracks[trackIdx]?.tuning ?? TUNING)[rowIndex]}
+                                </div>
+                                {system.measureIndices.flatMap((measureIndex) => {
+                                  const measureEvents =
+                                    trackLayout.measuresEvents[measureIndex] ?? [];
+                                  const cells = (
+                                    trackLayout.measureVisibleStepsByMeasure[measureIndex] ?? []
+                                  ).map((stepIndex) => {
+                                    const cell =
+                                      trackLayout.measureGrids[measureIndex]?.[rowIndex]?.[stepIndex];
+                                    const cellEvent = findEventAtStep(measureEvents, stepIndex);
+                                    const cellNote =
+                                      cellEvent && !("rest" in cellEvent && cellEvent.rest)
+                                        ? cellEvent.notes.find((note) => note.string === rowIndex + 1)
+                                        : undefined;
+                                    const hasTie = cellNote?.tie === true;
+                                    const techniqueGlyph = cellNote?.technique
+                                      ? TECHNIQUE_GLYPHS[cellNote.technique]
+                                      : "";
+                                    const displayValue =
+                                      cell?.fret !== null && cell?.fret !== undefined
+                                        ? `${hasTie ? `(${cell.fret})` : String(cell.fret)}${techniqueGlyph}`
+                                        : "";
+                                    const hasDisplayValue = displayValue !== "";
+                                    const isSelected =
+                                      isActiveTrack &&
+                                      selected.measureIndex === measureIndex &&
+                                      selected.rowIndex === rowIndex &&
+                                      selected.stepIndex === stepIndex;
+                                    const isCurrentStep =
+                                      isActiveTrack &&
+                                      playCursor?.measureIndex === measureIndex &&
+                                      playCursor?.stepIndex === stepIndex;
+                                    const isStepHighlighted =
+                                      isActiveTrack &&
+                                      (selectedRange !== null
+                                        ? isRangeHighlightedStep(measureIndex, stepIndex)
+                                        : isDurationPreviewStep(measureIndex, stepIndex));
+                                    const isBlocked =
+                                      isActiveTrack &&
+                                      (trackLayout.blockedStepsByMeasure[measureIndex]?.has(stepIndex) ??
+                                        false);
+                                    const isOverflowingMeasure =
+                                      trackLayout.overflowingMeasureSet.has(measureIndex);
+                                    const selectCell = () => {
+                                      if (!isActiveTrack) {
+                                        setActiveTrackIndex(trackIdx);
+                                      }
+                                      const owningStep = findOwningEventStep(
+                                        measureEvents,
+                                        stepIndex,
+                                        trackLayout.measureDisplayStepsByMeasure[measureIndex] ??
+                                          measureTicks
+                                      );
+                                      setSingleCellSelection({
+                                        measureIndex,
+                                        rowIndex,
+                                        stepIndex: owningStep,
+                                      });
+                                    };
+                                    return (
+                                      <button
+                                        key={`cell-${trackIdx}-${measureIndex}-${rowIndex}-${stepIndex}`}
+                                        type="button"
+                                        data-measure-index={measureIndex}
+                                        data-step-index={stepIndex}
+                                        data-track-index={trackIdx}
+                                        className={`${styles.cell} ${
+                                          isSelected ? styles.selected : ""
+                                        } ${isStepHighlighted ? styles.durationPreview : ""} ${
+                                          isActiveTrack && isDraggingRange ? styles.dragSelecting : ""
+                                        } ${isCurrentStep ? styles.playing : ""} ${
+                                          isBlocked ? styles.blocked : ""
+                                        } ${isOverflowingMeasure ? styles.measureOverflow : ""
+                                        }`.trim()}
+                                        onMouseDown={(event) => {
+                                          event.preventDefault();
+                                          if (isActiveTrack) {
+                                            handleRangeMouseDown(measureIndex, stepIndex);
+                                          }
+                                        }}
+                                        onMouseEnter={() => {
+                                          if (isActiveTrack) {
+                                            handleRangeMouseEnter(measureIndex, stepIndex);
+                                          }
+                                        }}
+                                        onTouchStart={(event) => {
+                                          event.preventDefault();
+                                          if (isActiveTrack) {
+                                            handleRangeMouseDown(measureIndex, stepIndex);
+                                          }
+                                        }}
+                                        onClick={() => {
+                                          if (isActiveTrack && didDragRangeRef.current) {
+                                            didDragRangeRef.current = false;
+                                            return;
+                                          }
+                                          selectCell();
+                                        }}
+                                      >
+                                        <span
+                                          className={`${styles.cellValue} ${
+                                            hasDisplayValue ? styles.cellValueFilled : ""
+                                          } ${hasTie ? styles.cellValueTied : ""
+                                          }`.trim()}
+                                        >
+                                          {displayValue}
+                                        </span>
+                                      </button>
+                                    );
+                                  });
+                                  return [
+                                    ...cells,
+                                    <div
+                                      key={`filler-${trackIdx}-${measureIndex}-${rowIndex}`}
+                                      aria-hidden="true"
+                                    />,
+                                  ];
+                                })}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -979,7 +1129,7 @@ export default function Home() {
             isPlaying={isPlaying}
             scale={fretboardScale}
             onScaleChange={handleFretboardScaleChange}
-            tuning={tabData.tracks[activeTrackIndex]?.tuning ?? TUNING}
+            tuning={tabData.tracks[safeActiveTrackIndex]?.tuning ?? TUNING}
           />
           <div className={styles.restFlickRow}>
             <RestFlickButton
