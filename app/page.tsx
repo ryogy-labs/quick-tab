@@ -130,6 +130,8 @@ export default function Home() {
     measureTicks,
     trackLayouts,
     sharedMeasureWidths,
+    alignedSlotWidthsByTrack,
+    alignedSlotOffsetsByTrack,
     anyTrackOverflowSet,
     selectedMeasureIndex,
     events,
@@ -955,16 +957,16 @@ export default function Home() {
                       cursorLocalMeasure >= 0 && playCursor !== null
                         ? { measureIndex: cursorLocalMeasure, stepIndex: playCursor.stepIndex }
                         : null;
-                    // Row template: per-measure slot widths plus a filler that
-                    // absorbs the difference to the shared (aligned) width.
+                    // Row template uses the aligned slot widths: each measure
+                    // stretches to the shared width, so bar lines match across
+                    // tracks without trailing dead space.
+                    const alignedWidths = alignedSlotWidthsByTrack[trackIdx] ?? [];
+                    const alignedOffsets = alignedSlotOffsetsByTrack[trackIdx] ?? [];
                     const templateParts: string[] = [`${tabLabelWidth}px`];
                     system.measureIndices.forEach((measureIndex) => {
-                      const widths = trackLayout.slotWidthsByMeasure[measureIndex] ?? [];
-                      widths.forEach((width) => templateParts.push(`${width}px`));
-                      const filler =
-                        (sharedMeasureWidths[measureIndex] ?? 0) -
-                        (trackLayout.measureWidthsByMeasure[measureIndex] ?? 0);
-                      templateParts.push(`${Math.max(0, filler)}px`);
+                      (alignedWidths[measureIndex] ?? []).forEach((width) =>
+                        templateParts.push(`${width}px`)
+                      );
                     });
                     const rowTemplate = templateParts.join(" ");
                     const systemSlots = system.measureIndices.map((measureIndex, localIndex) =>
@@ -973,9 +975,8 @@ export default function Home() {
                           step,
                           x:
                             (system.startXs[localIndex] ?? tabLabelWidth) +
-                            (trackLayout.slotOffsetsByMeasure[measureIndex]?.[slotIndex] ?? 0),
-                          width:
-                            trackLayout.slotWidthsByMeasure[measureIndex]?.[slotIndex] ?? stepWidth,
+                            (alignedOffsets[measureIndex]?.[slotIndex] ?? 0),
+                          width: alignedWidths[measureIndex]?.[slotIndex] ?? stepWidth,
                         })
                       )
                     );
@@ -1149,13 +1150,7 @@ export default function Home() {
                                       </button>
                                     );
                                   });
-                                  return [
-                                    ...cells,
-                                    <div
-                                      key={`filler-${trackIdx}-${measureIndex}-${rowIndex}`}
-                                      aria-hidden="true"
-                                    />,
-                                  ];
+                                  return cells;
                                 })}
                               </div>
                             ))}
