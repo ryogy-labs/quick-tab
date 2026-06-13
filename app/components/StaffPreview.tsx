@@ -856,18 +856,20 @@ export default function StaffPreview({
               {needStem &&
                 flagCount > 0 &&
                 Array.from({ length: flagCount }, (_, i) => {
-                  const offset = i * 7;
-                  const startY = stemUp ? stemTipY + offset : stemTipY - offset;
-                  const c1Y = stemUp ? startY + 4 : startY - 4;
-                  const endY = stemUp ? startY + 8 : startY - 8;
-                  const endX = stemUp ? stemX + 9 : stemX - 9;
+                  // Flags always extend to the right of the stem, regardless
+                  // of stem direction; they curve back toward the notehead.
+                  const towardHead = stemUp ? 1 : -1;
+                  const startY = stemTipY + i * 7 * towardHead;
+                  const c1Y = startY + 9 * towardHead;
+                  const endX = stemX + 10;
+                  const endY = startY + 16 * towardHead;
                   return (
                     <path
                       key={`flag-${event.measureIndex}-${event.step}-${i}`}
-                      d={`M ${stemX} ${startY} Q ${stemX} ${c1Y} ${endX} ${endY}`}
+                      d={`M ${stemX} ${startY} Q ${stemX + 1} ${c1Y} ${endX} ${endY}`}
                       fill="none"
                       stroke={noteStroke}
-                      strokeWidth={1.4}
+                      strokeWidth={1.7}
                       strokeLinecap="round"
                     />
                   );
