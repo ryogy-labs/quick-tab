@@ -722,12 +722,26 @@ export const rangesOverlap = (
   return startA < endB && startB < endA;
 };
 
+// Finest tick lattice any legitimate input can produce: every supported
+// duration (16ths, dotted values, triplets) is a multiple of TPQ/24.
+// Off-lattice values can only come from corrupted data; heal them onto the
+// 16th grid so they stay selectable, fillable, and playable.
+const INPUT_LATTICE = TICKS_PER_QUARTER / 24;
+
+const healTick = (value: number): number => {
+  if (INPUT_LATTICE <= 1 || value % INPUT_LATTICE === 0) {
+    return value;
+  }
+  const sixteenth = TICKS_PER_QUARTER / 4;
+  return Math.round(value / sixteenth) * sixteenth;
+};
+
 const sanitizeEvent = (
   event: TabEvent,
   stepsPerMeasure: number,
   allowOverflow: boolean
 ): TabEvent | null => {
-  const rawStep = Math.trunc(event.step);
+  const rawStep = healTick(Math.trunc(event.step));
   if (allowOverflow && rawStep < 0) {
     return null;
   }
@@ -735,9 +749,17 @@ const sanitizeEvent = (
   const step = allowOverflow
     ? Math.max(0, rawStep)
     : clampStepByMeasure(rawStep, stepsPerMeasure);
+  const truncatedLen = Math.trunc(event.len);
+  const healedLen = healTick(truncatedLen);
+  // A healed (corrupt) length becomes at least a 16th; legitimate values
+  // pass through untouched.
+  const rawLen =
+    healedLen === truncatedLen
+      ? Math.max(1, truncatedLen)
+      : Math.max(TICKS_PER_QUARTER / 4, healedLen);
   const len = allowOverflow
-    ? clampInt(event.len, 1, Math.max(1, stepsPerMeasure))
-    : clampLenByMeasure(event.len, step, stepsPerMeasure);
+    ? clampInt(rawLen, 1, Math.max(1, stepsPerMeasure))
+    : clampLenByMeasure(rawLen, step, stepsPerMeasure);
 
   // Preserve dot/triplet but strip invalid combo (both set)
   const dot = event.dot && !event.triplet ? true : undefined;
