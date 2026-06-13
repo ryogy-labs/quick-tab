@@ -73,6 +73,7 @@
 - Measure clipboard と range clipboard はメモリ上の一時状態であり、リロード後には残らない
 - 選択セル、選択範囲、再生状態、再生カーソル、undo/redo 履歴、数字入力バッファ、ズーム率、モバイル判定は UI 状態であり永続化しない
 - Import 時や保存復元時は `normalizeToTabData` と `sanitizeTabData` を通し、不正値や競合イベントを補正した上で扱う。異なる `ticksPerQuarter` を持つ v4/v5 ファイルは読込時に現行 TPQ へリスケールする
+- 正規の入力で生じうる tick 位置はすべて `TICKS_PER_QUARTER / 24` の格子上にある。sanitize は格子外の step/len(破損データ)を検出すると 16 分グリッドへスナップして自己修復する(修復後の len は最低 16 分)
 - Sequential モードで発生した overflow event は、`allowOverflow=true` の sanitize 経路で保持する
 - `getEventOccupiedSteps(event)` は dot/triplet を考慮した実効占有ステップ数を返す。`getMeasureOccupiedSteps` はその合計、`isMeasureOverflowing` は合計が `stepsPerMeasure` を超えるかを返す
 - イベントの衝突判定(sanitize / canPlaceEvent)と blocked / owning 判定は、生の `len` ではなく実効占有ステップ数を基準とする。これにより連続する三連符などが正しく共存できる
