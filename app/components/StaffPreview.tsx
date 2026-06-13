@@ -857,16 +857,19 @@ export default function StaffPreview({
                 flagCount > 0 &&
                 Array.from({ length: flagCount }, (_, i) => {
                   // Flags always extend to the right of the stem, regardless
-                  // of stem direction; they curve back toward the notehead.
+                  // of stem direction. Pennant shape (as engraved): the curve
+                  // bulges outward right at the stem tip, then tapers back in
+                  // toward the notehead.
                   const towardHead = stemUp ? 1 : -1;
                   const startY = stemTipY + i * 7 * towardHead;
-                  const c1Y = startY + 9 * towardHead;
-                  const endX = stemX + 10;
+                  const controlX = stemX + 11;
+                  const controlY = startY + 5 * towardHead;
+                  const endX = stemX + 7;
                   const endY = startY + 16 * towardHead;
                   return (
                     <path
                       key={`flag-${event.measureIndex}-${event.step}-${i}`}
-                      d={`M ${stemX} ${startY} Q ${stemX + 1} ${c1Y} ${endX} ${endY}`}
+                      d={`M ${stemX} ${startY} Q ${controlX} ${controlY} ${endX} ${endY}`}
                       fill="none"
                       stroke={noteStroke}
                       strokeWidth={1.7}
