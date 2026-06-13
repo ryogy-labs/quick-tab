@@ -55,7 +55,7 @@
 .markersLayer,
 .stringRow {
   display: grid;
-  grid-template-columns: var(--open-width) repeat(12, var(--fret-width));
+  grid-template-columns: var(--open-width) repeat(24, var(--fret-width));
   align-items: center;
   width: max-content;
   min-width: 100%;
@@ -230,7 +230,7 @@
   .fretNumbers,
   .markersLayer,
   .stringRow {
-    grid-template-columns: calc(40px * var(--fretboard-scale)) repeat(12, calc(55px * var(--fretboard-scale)));
+    grid-template-columns: calc(40px * var(--fretboard-scale)) repeat(24, calc(55px * var(--fretboard-scale)));
     min-width: max-content;
   }
 

@@ -21,7 +21,7 @@ type UseFlickGestureOptions = {
   disabled?: boolean;
 };
 
-const DEFAULT_RESULT: FlickResult = { len: 24, modifier: "normal" };
+const DEFAULT_RESULT: FlickResult = { len: TICKS_PER_QUARTER, modifier: "normal" };
 const DEFAULT_STATE: FlickState = {
   isActive: false,
   currentResult: DEFAULT_RESULT,
@@ -80,8 +80,14 @@ export function useFlickGesture({ threshold, onCommit, disabled }: UseFlickGestu
       prevLevelRef.current = { v: 0, h: 0 };
       latestResultRef.current = DEFAULT_RESULT;
 
-      // Capture pointer to keep receiving events even if finger moves off element
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      // Capture pointer to keep receiving events even if finger moves off
+      // element. Capture can throw for already-released pointers; the flick
+      // still works without it, so don't let that abort the gesture.
+      try {
+        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {
+        // ignore
+      }
 
       setState({
         isActive: true,

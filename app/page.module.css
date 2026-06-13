@@ -322,7 +322,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
+  /* Anchor the fret digits near the slot's left edge (half a base step in),
+     so wide event slots don't center their number mid-measure. */
+  justify-content: flex-start;
   height: 36px;
   border: none;
   padding: 0;
@@ -352,6 +354,9 @@
   min-width: 12px;
   padding: 0 2px;
   line-height: 1;
+  /* Center the glyph at half a base step from the cell's left edge. */
+  margin-left: calc(var(--step-width) / 2);
+  transform: translateX(-50%);
   font-size: 32px;
   font-family: "Times New Roman", serif;
   background: transparent;
