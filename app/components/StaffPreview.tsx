@@ -417,8 +417,10 @@ const buildRenderEvents = (
       .map((event) => {
         const measureStartX = measureStartXs[measureIndex] ?? measureStartXs[0] ?? 0;
         const slot = findSlotForStep(slotsByMeasure?.[measureIndex], event.step);
+        // Events anchor near the left edge of their slot (GP-style): a wide
+        // slot (e.g. a whole note) must not push the glyph to its center.
         const x = slot
-          ? slot.x + slot.width / 2
+          ? slot.x + Math.min(slot.width, stepWidth) / 2
           : measureStartX + stepWidth * (event.step / stepUnit + 0.5);
 
         if ("rest" in event && event.rest) {

@@ -18,9 +18,9 @@ type FretboardInputProps = {
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 1.5;
 
-const FRET_NUMBERS = Array.from({ length: 12 }, (_, index) => index + 1);
+const FRET_NUMBERS = Array.from({ length: 24 }, (_, index) => index + 1);
 
-const MARKER_FRETS = new Set([3, 5, 7, 9, 12]);
+const MARKER_FRETS = new Set([3, 5, 7, 9, 12, 15, 17, 19, 21, 24]);
 
 const DESKTOP_THRESHOLD = 42;
 const MOBILE_THRESHOLD = 55;
